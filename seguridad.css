@@ -1,0 +1,102 @@
+/* Estilos para la sección de seguridad */
+.main-title {
+    font-size: 1.5rem;
+    font-weight: bold;
+    margin-bottom: 1.5rem;
+    color: #2d3748;
+}
+
+.form-group {
+    margin-bottom: 1.25rem;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+    color: black;
+}
+
+.password-container {
+    display: flex;
+    align-items: center;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.375rem;
+    overflow: hidden;
+}
+
+.password-container input {
+    flex: 1;
+    padding: 0.5rem 0.75rem;
+    border: none;
+    outline: none;
+    font-size: 1rem;
+}
+
+.toggle-password {
+    background: none;
+    border: none;
+    padding: 0.5rem;
+    cursor: pointer;
+    color: black;
+}
+
+.hint {
+    font-size: 0.875rem;
+    color: black;
+    margin-top: 0.25rem;
+}
+
+.btn-confirm {
+    background-color: #ffd500;
+    color: white;
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 0.375rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    width: 100%;
+    margin-top: 1rem;
+}
+
+.btn-confirm:hover {
+    background-color: #9f8500;
+}
+
+.logout-section {
+    margin-top: 2rem;
+    padding-top: 1rem;
+    border-top: 1px solid #e2e8f0;
+}
+
+.btn-logout {
+    color: #e53e3e;
+    font-weight: 600;
+    text-decoration: none;
+    transition: color 0.2s;
+}
+
+.btn-logout:hover {
+    color: #c53030;
+}
+
+#contentContainer {
+    margin-bottom: 1rem;
+}
+
+#mensajeExito {
+    color: #38a169;
+    padding: 0.5rem;
+    background-color: #f0fff4;
+    border-radius: 0.375rem;
+    margin-bottom: 1rem;
+}
+
+#mensajeError {
+    color: #e53e3e;
+    padding: 0.5rem;
+    background-color: #fff5f5;
+    border-radius: 0.375rem;
+    margin-bottom: 1rem;
+}
