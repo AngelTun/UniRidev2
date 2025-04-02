@@ -45,7 +45,8 @@ try {
     $mensaje_id = $pdo->lastInsertId();
     
     // Obtener la hora actual formateada
-    $hora = date('H:i');
+    //$hora = date('H:i');
+    $hora = (new DateTime())->format('H:i');
 
     echo json_encode([  
         'success' => true,  
