@@ -149,7 +149,7 @@
       checkUnreadMessages();
       window.globalPollingInterval = setInterval(checkUnreadMessages, 5000);
     }
-    
+
     function checkUnreadMessages() {
       fetch('obtener_mensajes_no_leidos.php', { credentials: 'include' })
         .then(r => r.json())
@@ -167,7 +167,7 @@
         })
         .catch(console.error);
     }
-    
+
     function updateMessageBadge(mensajes) {
       const link = document.querySelector('.sidebar-link[data-page="mensajes"]');
       if (!link) return;
@@ -201,7 +201,7 @@
             chatContainer.innerHTML = '<div class="error-chat"><p>Error al cargar la conversación</p><button onclick="location.reload()">Reintentar</button></div>';
           });
       }
-      
+
       function updateContactBadge(email, count) {
         const item = document.querySelector(`.contact-item[data-email="${email}"]`);
         if (!item) return;
@@ -211,12 +211,12 @@
           b.textContent = count > 9 ? '9+' : count;
         } else if (b) b.remove();
       }
-      
+
       function setupChatForm() {
         const f = document.getElementById('chatForm');
         if (f) f.addEventListener('submit', e => { e.preventDefault(); sendMessage(f); });
       }
-      
+
       function sendMessage(form) {
         const fd = new FormData(form), chatMessages = document.getElementById('chatMessages');
         fetch('enviar_mensaje.php', { method: 'POST', body: fd, credentials: 'include' })
@@ -233,21 +233,21 @@
           })
           .catch(() => alert('Error al enviar el mensaje'));
       }
-      
+
       function scrollToBottom() {
         const cm = document.getElementById('chatMessages');
         if (cm) cm.scrollTop = cm.scrollHeight;
       }
-      
+
       function startMessagePolling(email) {
         stopMessagePolling(); checkNewMessages(email);
         window.messagePollingInterval = setInterval(() => checkNewMessages(email), 3000);
       }
-      
+
       function stopMessagePolling() {
         if (window.messagePollingInterval) { clearInterval(window.messagePollingInterval); window.messagePollingInterval = null; }
       }
-      
+
       function checkNewMessages(email) {
         if (!email) return;
         const cm = document.getElementById('chatMessages');
@@ -269,7 +269,7 @@
                     const now = Date.now();
                     if (now-window.lastNotificationTime>2000) {
                       showDesktopNotification(msg.remitente,msg.mensaje);
-                      window.lastNotificationTime=now;
+                      window.lastNotificationTime = now;
                     }
                   }
                 }
@@ -283,7 +283,7 @@
           })
           .catch(console.error);
       }
-      
+
       function markMessagesAsRead(email) {
         fetch('marcar_como_leido.php', {
           method:'POST',
@@ -292,7 +292,7 @@
           credentials:'include'
         }).then(()=>{ checkUnreadMessages(); updateContactBadge(email,0); });
       }
-      
+
       function showDesktopNotification(remitente,mensaje) {
         if (!('Notification' in window)) return;
         if (Notification.permission==='granted') {
@@ -304,7 +304,7 @@
           Notification.requestPermission().then(p=>p==='granted'&&new Notification(`Nuevo mensaje de ${remitente}`,{body:mensaje,icon:'Images/notification-icon.png'}));
         }
       }
-      
+
       function setupMessagesEvents() {
         const cl = document.getElementById('contactsList');
         if (cl) cl.addEventListener('click',e=>{
@@ -338,73 +338,109 @@
         cc.prepend(div);
       }
     }
-    
+
     function enviarFormularioViaje() {
       if (isSubmitting) return;
       isSubmitting = true;
-      
+
       const form = document.getElementById('formPublicarViaje');
       const mc = document.getElementById('msgContainerPublicar');
       const fd = new FormData(form);
-      
+
       // Validación de fecha/hora en cliente
       const fecha = form.fecha.value;
       const hora = form.hora.value;
       const fechaHora = new Date(`${fecha}T${hora}`);
-      
+
       if (fechaHora < new Date()) {
-          mc.innerHTML = '<div class="error-alert">La fecha y hora deben ser futuras</div>';
-          setTimeout(() => mc.innerHTML = '', 5000);
-          isSubmitting = false;
-          return;
+        mc.innerHTML = '<div class="error-alert">La fecha y hora deben ser futuras</div>';
+        setTimeout(() => mc.innerHTML = '', 5000);
+        isSubmitting = false;
+        return;
       }
 
       fetch('publicarViaje.php', {
-          method: 'POST',
-          body: fd,
-          credentials: 'include',
-          headers: {
-              'X-Requested-With': 'XMLHttpRequest'
-          }
+        method: 'POST',
+        body: fd,
+        credentials: 'include',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
       })
       .then(r => r.text())
       .then(html => {
-          mc.innerHTML = html;
-          if (html.includes('mensajeExito')) {
-              form.reset();
-              actualizarViajes();
-          }
-          setTimeout(() => mc.innerHTML = '', 5000);
+        mc.innerHTML = html;
+        if (html.includes('mensajeExito')) {
+          form.reset();
+          actualizarViajes();
+        }
+        setTimeout(() => mc.innerHTML = '', 5000);
       })
       .catch(() => {
-          mc.innerHTML = '<div class="error-alert">Error al enviar el formulario</div>';
-          setTimeout(() => mc.innerHTML = '', 5000);
+        mc.innerHTML = '<div class="error-alert">Error al enviar el formulario</div>';
+        setTimeout(() => mc.innerHTML = '', 5000);
       })
-      .finally(() => {
-          isSubmitting = false;
-      });
-    }
-    
-    function initAutocomplete(inputId, mapId) {
-      const input = document.getElementById(inputId);
-      if (!input) return;
-      new google.maps.places.Autocomplete(input,{types:['geocode'],componentRestrictions:{country:'mx'}});
-    }
-    
-    function actualizarViajes() {
-      fetch('obtener_viajes.php')
-        .then(r=>r.text())
-        .then(html=>document.getElementById('viajesContainer').innerHTML=html);
+      .finally(() => { isSubmitting = false; });
     }
 
-    // Al cargar página
-    window.addEventListener('DOMContentLoaded', function() {
+    function actualizarViajes() {
+      fetch('obtener_viajes.php')
+        .then(r => r.text())
+        .then(html => document.getElementById('viajesContainer').innerHTML = html);
+    }
+
+    // ==================== VIAJES DINÁMICOS & NOTIFICACIONES ====================
+    window.lastTripId = 0;
+    window.tripsPollingInterval = null;
+
+    function checkNewTrips() {
+      fetch(`obtener_nuevos_viajes.php?ultimo_id=${window.lastTripId}`, { credentials: 'include' })
+        .then(r => r.json())
+        .then(data => {
+          if (data.success && data.count > 0) {
+            const inicioLink = document.querySelector('.sidebar-link[data-page="Inicio"]');
+            let badge = inicioLink.querySelector('.notification-badge') || document.createElement('span');
+            badge.className = 'notification-badge';
+            badge.textContent = data.count > 9 ? '9+' : data.count;
+            if (!inicioLink.contains(badge)) inicioLink.appendChild(badge);
+            if (inicioLink.classList.contains('active')) actualizarViajes();
+            data.viajes.forEach(v => {
+              if (Notification.permission === 'granted') {
+                new Notification('Nuevo viaje disponible', {
+                  body: `${v.origen} → ${v.destino} · ${v.fecha} ${v.hora}`
+                });
+              }
+            });
+            window.lastTripId = data.viajes[data.viajes.length - 1].id;
+          }
+        })
+        .catch(console.error);
+    }
+
+    function startTripsPolling() {
+      if (window.tripsPollingInterval) clearInterval(window.tripsPollingInterval);
+      // Inicializar lastTripId
+      document.querySelectorAll('#viajesContainer .card').forEach(c => {
+        const id = parseInt(c.getAttribute('data-id'), 10);
+        if (id > window.lastTripId) window.lastTripId = id;
+      });
+      checkNewTrips();
+      window.tripsPollingInterval = setInterval(checkNewTrips, 30000);
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
       changeSection('Inicio');
       if ('Notification' in window) Notification.requestPermission();
       startGlobalMessagePolling();
       actualizarViajes();
-      document.addEventListener('submit', function(e){
-        if (e.target && e.target.id==='formPublicarViaje') {
+      startTripsPolling();
+
+      // Limpiar badge al hacer click en "Inicio"
+      document.querySelector('.sidebar-link[data-page="Inicio"]').addEventListener('click', () => {
+        const b = document.querySelector('.sidebar-link[data-page="Inicio"] .notification-badge');
+        if (b) b.remove();
+      });
+
+      document.addEventListener('submit', function(e) {
+        if (e.target && e.target.id === 'formPublicarViaje') {
           e.preventDefault();
           enviarFormularioViaje();
         }
@@ -447,10 +483,7 @@
       <div id="contentInicio" class="content-section">
         <h2 class="main-title">Viajes Disponibles</h2>
         <div class="grid-container" id="viajesContainer">
-          <?php 
-          // Archivo obtener_viajes.php debe incluir el nombre del conductor
-          include 'obtener_viajes.php'; 
-          ?>
+          <?php include 'obtener_viajes.php'; ?>
         </div>
         <h2 class="main-title mt-8">Seguimiento del Conductor</h2>
         <div id="map" class="map-container" style="height: 400px;"></div>
@@ -466,7 +499,7 @@
       document.getElementById('sidebar').classList.toggle('sidebar-hidden');
       document.getElementById('mainContent').classList.toggle('expanded');
     });
-    
+
     function enviarFormularioPerfil() {
       const form = document.getElementById('formPerfil');
       const fd = new FormData(form);
@@ -480,7 +513,7 @@
         })
         .catch(console.error);
     }
-    
+
     function enviarFormularioSeguridad() {
       const form = document.getElementById('formSeguridad');
       const fd = new FormData(form);
@@ -495,26 +528,26 @@
         })
         .catch(console.error);
     }
-    
+
     document.addEventListener('click', function(e) {
       if (e.target.classList.contains('toggle-password')) {
         const tgt = document.getElementById(e.target.dataset.target);
         if (tgt) {
-          if (tgt.type === 'password') { 
-            tgt.type = 'text'; 
-            e.target.textContent = '🔒'; 
-          } else { 
-            tgt.type = 'password'; 
-            e.target.textContent = '👁️'; 
+          if (tgt.type === 'password') {
+            tgt.type = 'text';
+            e.target.textContent = '🔒';
+          } else {
+            tgt.type = 'password';
+            e.target.textContent = '👁️';
           }
         }
       }
     });
-    
+
     document.addEventListener('input', function(e) {
       if (e.target.id === 'new_password') {
         const p = e.target.value;
-        const ok = p.length>=8 && /[A-Z]/.test(p) && /[0-9]/.test(p);
+        const ok = p.length >= 8 && /[A-Z]/.test(p) && /[0-9]/.test(p);
         e.target.style.borderColor = p ? (ok ? '#27ae60' : '#e74c3c') : '#ddd';
       }
     });
