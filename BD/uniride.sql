@@ -225,3 +225,18 @@ COMMIT;
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
 /*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+
+
+CREATE TABLE IF NOT EXISTS viajes (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    conductor_id INT NOT NULL,  -- Asegúrate de que esta columna existe
+    origen VARCHAR(255) NOT NULL,
+    destino VARCHAR(255) NOT NULL,
+    fecha DATE NOT NULL,
+    hora TIME NOT NULL,
+    asientos INT NOT NULL,
+    precio DECIMAL(10, 2) NOT NULL,
+    detalles TEXT,
+    created_at DATETIME,
+    FOREIGN KEY (conductor_id) REFERENCES usuarios(id)  -- Si hay tabla usuarios
+);

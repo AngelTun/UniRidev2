@@ -8,13 +8,14 @@
   <!-- TailwindCSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- API de Google Maps -->
-  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyB-VtkPeG2cL2SjoAIufnNf39U-RA0qQRc"></script>
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyB-VtkPeG2cL2SjoAIufnNf39U-RA0qQRc&libraries=places"></script>
   <!-- Nuestro CSS personalizado -->
   <link rel="stylesheet" href="dashboard.css" />
   <link rel="stylesheet" href="perfil.css" />
   <link rel="stylesheet" href="mensajes.css" />
   <link rel="stylesheet" href="seguridad.css" />
   <link rel="stylesheet" href="cerrarsesion.css" />
+  <link rel="stylesheet" href="publicar_viaje.css" />
   <style>
     /* Estilos para notificaciones */
     .notification-badge {
@@ -84,373 +85,330 @@
       0%, 60%, 100% { transform: translateY(0); }
       30% { transform: translateY(-5px); }
     }
+    /* Estilo para mensajes de publicar viaje */
+    #msgContainerPublicar {
+      margin-bottom: 1.5rem;
+    }
   </style>
   <script>
-    // Variables globales para el sistema de mensajes
+    // Variables globales para mensajes y polling
     window.messagePollingInterval = null;
     window.globalPollingInterval = null;
     window.currentChatEmail = '';
     window.unreadMessages = 0;
     window.lastNotificationTime = 0;
     window.unreadCounts = {};
+    let isSubmitting = false;
 
-    // Inicializa el mapa para la sección "Inicio"
+    // Inicializa mapa en "Inicio"
     function initMap() {
       var map = new google.maps.Map(document.getElementById('map'), {
         center: { lat: 20.9671, lng: -89.6236 },
         zoom: 12
       });
-      var marker = new google.maps.Marker({
+      new google.maps.Marker({
         position: { lat: 20.9671, lng: -89.6236 },
         map: map,
         title: "Ubicación del Conductor"
       });
     }
 
-    // Función para cambiar de sección y cargar contenido externo si es necesario
+    // Cambia de sección y carga PHP correspondiente
     function changeSection(page) {
-      // Limpiar intervalos de mensajes si existen
       if (window.messagePollingInterval) {
         clearInterval(window.messagePollingInterval);
         window.messagePollingInterval = null;
       }
-      
-      // Quitar la clase 'active' de todos los enlaces
-      document.querySelectorAll('.sidebar-link').forEach(link => {
-        link.classList.remove('active');
-      });
-      // Agregar 'active' al enlace seleccionado
+      document.querySelectorAll('.sidebar-link').forEach(l => l.classList.remove('active'));
       document.querySelector(`.sidebar-link[data-page="${page}"]`).classList.add('active');
 
-      if(page === "Inicio") {
+      if (page === 'Inicio') {
         document.getElementById('contentInicio').classList.remove('hidden');
         document.getElementById('contentContainer').classList.add('hidden');
         initMap();
       } else {
         document.getElementById('contentInicio').classList.add('hidden');
-        fetch(page + ".php", { credentials: 'include' })
-          .then(response => response.text())
-          .then(data => {
-            document.getElementById('contentContainer').innerHTML = data;
+        fetch(page + '.php', { credentials: 'include' })
+          .then(r => r.text())
+          .then(html => {
+            document.getElementById('contentContainer').innerHTML = html;
             document.getElementById('contentContainer').classList.remove('hidden');
-            
-            if (page === "mensajes") {
-              initializeMessages();
-            }
+            if (page === 'mensajes') initializeMessages();
+            if (page === 'publicarViaje') setupPublicarViaje();
           })
-          .catch(error => {
-            document.getElementById('contentContainer').innerHTML = "<p>Error al cargar el contenido.</p>";
+          .catch(() => {
+            document.getElementById('contentContainer').innerHTML = '<p>Error al cargar el contenido.</p>';
             document.getElementById('contentContainer').classList.remove('hidden');
           });
       }
     }
 
-    // ==================== FUNCIONES GLOBALES ====================
+    // Polling global de mensajes no leídos
     function startGlobalMessagePolling() {
-      // Detener polling anterior si existe
-      if (window.globalPollingInterval) {
-        clearInterval(window.globalPollingInterval);
-      }
-      
-      // Verificar inmediatamente
+      if (window.globalPollingInterval) clearInterval(window.globalPollingInterval);
       checkUnreadMessages();
-      
-      // Configurar intervalo para verificar cada 5 segundos
       window.globalPollingInterval = setInterval(checkUnreadMessages, 5000);
     }
-
+    
     function checkUnreadMessages() {
       fetch('obtener_mensajes_no_leidos.php', { credentials: 'include' })
-        .then(response => response.json())
+        .then(r => r.json())
         .then(data => {
           if (data.success) {
             updateMessageBadge(data.mensajes);
             window.unreadCounts = {};
-            data.mensajes.forEach(msg => {
-              window.unreadCounts[msg.correo] = msg.count;
-              // Actualizar badges de contactos solo si estamos en mensajes
+            data.mensajes.forEach(m => {
+              window.unreadCounts[m.correo] = m.count;
               if (document.querySelector('.sidebar-link[data-page="mensajes"]').classList.contains('active')) {
-                updateContactBadge(msg.correo, msg.count);
+                updateContactBadge(m.correo, m.count);
               }
             });
           }
         })
-        .catch(error => console.error('Error al verificar mensajes no leídos:', error));
+        .catch(console.error);
     }
-
+    
     function updateMessageBadge(mensajes) {
-      const mensajesLink = document.querySelector('.sidebar-link[data-page="mensajes"]');
-      if (!mensajesLink) return;
-      
-      const badge = mensajesLink.querySelector('.notification-badge') || document.createElement('span');
-      
-      window.unreadMessages = mensajes.reduce((total, msg) => {
-        return total + msg.count;
-      }, 0);
-      
+      const link = document.querySelector('.sidebar-link[data-page="mensajes"]');
+      if (!link) return;
+      let badge = link.querySelector('.notification-badge') || document.createElement('span');
+      window.unreadMessages = mensajes.reduce((t, m) => t + m.count, 0);
       if (window.unreadMessages > 0) {
         badge.className = 'notification-badge';
         badge.textContent = window.unreadMessages > 9 ? '9+' : window.unreadMessages;
-        if (!mensajesLink.contains(badge)) {
-          mensajesLink.appendChild(badge);
-        }
-      } else if (badge.parentNode) {
-        badge.remove();
-      }
+        if (!link.contains(badge)) link.appendChild(badge);
+      } else if (badge.parentNode) badge.remove();
     }
 
-    // ==================== SECCIÓN DE MENSAJES ====================
+    // ==================== SECCIÓN MENSAJES ====================
     function initializeMessages() {
       let currentChatEmail = '';
-
       function loadChat(email) {
         currentChatEmail = email;
         window.currentChatEmail = email;
         const chatContainer = document.getElementById('chatContainer');
-        
-        fetch(`obtener_conversacion.php?contacto=${encodeURIComponent(email)}`, {
-          credentials: 'include'
-        })
-        .then(response => response.text())
-        .then(html => {
-          chatContainer.innerHTML = html;
-          setupChatForm();
-          scrollToBottom();
-          startMessagePolling(email);
-          markMessagesAsRead(email);
-          updateContactBadge(email, 0);
-        })
-        .catch(error => {
-          chatContainer.innerHTML = `
-            <div class="error-chat">
-              <p>Error al cargar la conversación</p>
-              <button onclick="location.reload()">Reintentar</button>
-            </div>
-          `;
-        });
-      }
-
-      function updateContactBadge(email, count) {
-        const contactItem = document.querySelector(`.contact-item[data-email="${email}"]`);
-        if (!contactItem) return;
-        
-        let badge = contactItem.querySelector('.contact-badge');
-        
-        if (count > 0) {
-          if (!badge) {
-            badge = document.createElement('span');
-            badge.className = 'contact-badge';
-            contactItem.appendChild(badge);
-          }
-          badge.textContent = count > 9 ? '9+' : count;
-        } else if (badge) {
-          badge.remove();
-        }
-      }
-
-      function setupChatForm() {
-        const chatForm = document.getElementById('chatForm');
-        if (chatForm) {
-          chatForm.addEventListener('submit', function(e) {
-            e.preventDefault();
-            sendMessage(this);
-          });
-        }
-      }
-
-      function sendMessage(form) {
-        const formData = new FormData(form);
-        const chatMessages = document.getElementById('chatMessages');
-        
-        fetch('enviar_mensaje.php', {
-          method: 'POST',
-          body: formData,
-          credentials: 'include'
-        })
-        .then(response => response.json())
-        .then(data => {
-          if (data.success) {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'message sent';
-            messageDiv.dataset.messageId = data.id;
-            messageDiv.innerHTML = `
-              <div class="message-content">${data.mensaje}</div>
-              <div class="message-time">${data.hora}</div>
-            `;
-            chatMessages.appendChild(messageDiv);
-            form.reset();
+        fetch(`obtener_conversacion.php?contacto=${encodeURIComponent(email)}`, { credentials: 'include' })
+          .then(r => r.text())
+          .then(html => {
+            chatContainer.innerHTML = html;
+            setupChatForm();
             scrollToBottom();
-            checkNewMessages(currentChatEmail);
-          } else {
-            alert('Error: ' + data.error);
-          }
-        })
-        .catch(error => {
-          console.error('Error:', error);
-          alert('Error al enviar el mensaje');
-        });
+            startMessagePolling(email);
+            markMessagesAsRead(email);
+            updateContactBadge(email, 0);
+          })
+          .catch(() => {
+            chatContainer.innerHTML = '<div class="error-chat"><p>Error al cargar la conversación</p><button onclick="location.reload()">Reintentar</button></div>';
+          });
       }
-
+      
+      function updateContactBadge(email, count) {
+        const item = document.querySelector(`.contact-item[data-email="${email}"]`);
+        if (!item) return;
+        let b = item.querySelector('.contact-badge');
+        if (count > 0) {
+          if (!b) { b = document.createElement('span'); b.className = 'contact-badge'; item.appendChild(b); }
+          b.textContent = count > 9 ? '9+' : count;
+        } else if (b) b.remove();
+      }
+      
+      function setupChatForm() {
+        const f = document.getElementById('chatForm');
+        if (f) f.addEventListener('submit', e => { e.preventDefault(); sendMessage(f); });
+      }
+      
+      function sendMessage(form) {
+        const fd = new FormData(form), chatMessages = document.getElementById('chatMessages');
+        fetch('enviar_mensaje.php', { method: 'POST', body: fd, credentials: 'include' })
+          .then(r => r.json())
+          .then(data => {
+            if (data.success) {
+              const div = document.createElement('div');
+              div.className = 'message sent';
+              div.dataset.messageId = data.id;
+              div.innerHTML = `<div class="message-content">${data.mensaje}</div><div class="message-time">${data.hora}</div>`;
+              chatMessages.appendChild(div);
+              form.reset(); scrollToBottom(); checkNewMessages(currentChatEmail);
+            } else alert('Error: ' + data.error);
+          })
+          .catch(() => alert('Error al enviar el mensaje'));
+      }
+      
       function scrollToBottom() {
-        const chatMessages = document.getElementById('chatMessages');
-        if (chatMessages) {
-          chatMessages.scrollTop = chatMessages.scrollHeight;
-        }
+        const cm = document.getElementById('chatMessages');
+        if (cm) cm.scrollTop = cm.scrollHeight;
       }
-
+      
       function startMessagePolling(email) {
-        stopMessagePolling();
-        checkNewMessages(email);
-        window.messagePollingInterval = setInterval(() => {
-          checkNewMessages(email);
-        }, 3000);
+        stopMessagePolling(); checkNewMessages(email);
+        window.messagePollingInterval = setInterval(() => checkNewMessages(email), 3000);
       }
-
+      
       function stopMessagePolling() {
-        if (window.messagePollingInterval) {
-          clearInterval(window.messagePollingInterval);
-          window.messagePollingInterval = null;
-        }
+        if (window.messagePollingInterval) { clearInterval(window.messagePollingInterval); window.messagePollingInterval = null; }
       }
-
+      
       function checkNewMessages(email) {
         if (!email) return;
-        
-        const chatMessages = document.getElementById('chatMessages');
-        if (!chatMessages) return;
-        
-        const lastMessage = chatMessages.querySelector('.message:last-child');
-        const lastMessageId = lastMessage ? lastMessage.dataset.messageId : 0;
-        
-        fetch(`obtener_nuevos_mensajes.php?contacto=${encodeURIComponent(email)}&ultimo_id=${lastMessageId}`, {
-          credentials: 'include'
-        })
-        .then(response => response.json())
-        .then(data => {
-          if (data.success && data.mensajes && data.mensajes.length > 0) {
-            let hasNewMessages = false;
-            
-            data.mensajes.forEach(msg => {
-              if (!document.querySelector(`.message[data-message-id="${msg.id}"]`)) {
-                const messageDiv = document.createElement('div');
-                messageDiv.className = `message ${msg.remitente === '<?= $_SESSION['usuario'] ?? '' ?>' ? 'sent' : 'received'}`;
-                messageDiv.dataset.messageId = msg.id;
-                messageDiv.innerHTML = `
-                  <div class="message-content">${msg.mensaje}</div>
-                  <div class="message-time">${msg.hora}</div>
-                `;
-                chatMessages.appendChild(messageDiv);
-                hasNewMessages = true;
-                
-                if (email !== currentChatEmail || !document.hasFocus()) {
-                  const now = Date.now();
-                  if (now - window.lastNotificationTime > 2000) {
-                    showDesktopNotification(msg.remitente, msg.mensaje);
-                    window.lastNotificationTime = now;
+        const cm = document.getElementById('chatMessages');
+        const last = cm.querySelector('.message:last-child');
+        const lastId = last ? last.dataset.messageId : 0;
+        fetch(`obtener_nuevos_mensajes.php?contacto=${encodeURIComponent(email)}&ultimo_id=${lastId}`, { credentials: 'include' })
+          .then(r => r.json())
+          .then(data => {
+            if (data.success && data.mensajes.length) {
+              let newFlag = false;
+              data.mensajes.forEach(msg => {
+                if (!document.querySelector(`.message[data-message-id="${msg.id}"]`)) {
+                  const d = document.createElement('div');
+                  d.className = `message ${msg.remitente===('<?= $_SESSION['usuario']??'' ?>')?'sent':'received'}`;
+                  d.dataset.messageId = msg.id;
+                  d.innerHTML = `<div class="message-content">${msg.mensaje}</div><div class="message-time">${msg.hora}</div>`;
+                  cm.appendChild(d); newFlag = true;
+                  if (email!==currentChatEmail||!document.hasFocus()) {
+                    const now = Date.now();
+                    if (now-window.lastNotificationTime>2000) {
+                      showDesktopNotification(msg.remitente,msg.mensaje);
+                      window.lastNotificationTime=now;
+                    }
                   }
                 }
-              }
-            });
-            
-            if (hasNewMessages) {
-              scrollToBottom();
-              if (email === currentChatEmail) {
-                markMessagesAsRead(email);
-              } else {
-                checkUnreadMessages();
+              });
+              if (newFlag) {
+                scrollToBottom();
+                if (email===currentChatEmail) markMessagesAsRead(email);
+                else checkUnreadMessages();
               }
             }
-          }
-        })
-        .catch(error => console.error('Error al verificar nuevos mensajes:', error));
+          })
+          .catch(console.error);
       }
-
-      function markMessagesAsRead(contactEmail) {
+      
+      function markMessagesAsRead(email) {
         fetch('marcar_como_leido.php', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          body: `contacto=${encodeURIComponent(contactEmail)}`,
-          credentials: 'include'
-        }).then(() => {
-          checkUnreadMessages();
-          updateContactBadge(contactEmail, 0);
+          method:'POST',
+          headers:{'Content-Type':'application/x-www-form-urlencoded'},
+          body:`contacto=${encodeURIComponent(email)}`,
+          credentials:'include'
+        }).then(()=>{ checkUnreadMessages(); updateContactBadge(email,0); });
+      }
+      
+      function showDesktopNotification(remitente,mensaje) {
+        if (!('Notification' in window)) return;
+        if (Notification.permission==='granted') {
+          new Notification(`Nuevo mensaje de ${remitente}`, {
+            body:mensaje.length>50?mensaje.substring(0,50)+'...':mensaje,
+            icon:'Images/notification-icon.png'
+          });
+        } else if (Notification.permission!=='denied') {
+          Notification.requestPermission().then(p=>p==='granted'&&new Notification(`Nuevo mensaje de ${remitente}`,{body:mensaje,icon:'Images/notification-icon.png'}));
+        }
+      }
+      
+      function setupMessagesEvents() {
+        const cl = document.getElementById('contactsList');
+        if (cl) cl.addEventListener('click',e=>{
+          const item = e.target.closest('.contact-item');
+          if (!item) return;
+          document.querySelectorAll('.contact-item').forEach(i=>i.classList.remove('active'));
+          item.classList.add('active');
+          loadChat(item.getAttribute('data-email'));
+        });
+        const sc = document.getElementById('searchContact');
+        if (sc) sc.addEventListener('input',()=>{
+          const term = sc.value.toLowerCase();
+          document.querySelectorAll('.contact-item').forEach(item=>{
+            const name=item.querySelector('.contact-name').textContent.toLowerCase();
+            const mail=item.querySelector('.contact-email').textContent.toLowerCase();
+            item.style.display=(name.includes(term)||mail.includes(term))?'flex':'none';
+          });
         });
       }
-
-      function showDesktopNotification(remitente, mensaje) {
-        if (!("Notification" in window)) return;
-        
-        if (Notification.permission === "granted") {
-          new Notification(`Nuevo mensaje de ${remitente}`, {
-            body: mensaje.length > 50 ? mensaje.substring(0, 50) + '...' : mensaje,
-            icon: 'Images/notification-icon.png'
-          });
-        } 
-        else if (Notification.permission !== "denied") {
-          Notification.requestPermission().then(permission => {
-            if (permission === "granted") {
-              new Notification(`Nuevo mensaje de ${remitente}`, {
-                body: mensaje,
-                icon: 'Images/notification-icon.png'
-              });
-            }
-          });
-        }
-      }
-
-      function setupMessagesEvents() {
-        const contactsList = document.getElementById('contactsList');
-        if (contactsList) {
-          contactsList.addEventListener('click', function(e) {
-            if (e.target.closest('.contact-link')) {
-              e.preventDefault();
-              const contacto = e.target.closest('.contact-item');
-              const email = contacto.getAttribute('data-email');
-              
-              document.querySelectorAll('.contact-item').forEach(li => {
-                li.classList.remove('active');
-              });
-              contacto.classList.add('active');
-              
-              loadChat(email);
-            }
-          });
-        }
-
-        const searchInput = document.getElementById('searchContact');
-        if (searchInput) {
-          searchInput.addEventListener('input', function() {
-            const term = this.value.toLowerCase();
-            document.querySelectorAll('.contact-item').forEach(item => {
-              const name = item.querySelector('.contact-name').textContent.toLowerCase();
-              const email = item.querySelector('.contact-email').textContent.toLowerCase();
-              item.style.display = (name.includes(term) || email.includes(term)) ? 'flex' : 'none';
-            });
-          });
-        }
-      }
-
       setupMessagesEvents();
-
-      const initialContact = document.querySelector('.contact-item.active');
-      if (initialContact) {
-        const email = initialContact.getAttribute('data-email');
-        loadChat(email);
-      }
+      const init = document.querySelector('.contact-item.active');
+      if (init) loadChat(init.getAttribute('data-email'));
     }
 
-    // Al cargar la página
-    window.addEventListener("DOMContentLoaded", function() {
-      changeSection("Inicio");
+    // ==================== PUBLICAR VIAJE ====================
+    function setupPublicarViaje() {
+      const cc = document.getElementById('contentContainer');
+      if (!document.getElementById('msgContainerPublicar')) {
+        const div = document.createElement('div');
+        div.id = 'msgContainerPublicar';
+        cc.prepend(div);
+      }
+    }
+    
+    function enviarFormularioViaje() {
+      if (isSubmitting) return;
+      isSubmitting = true;
       
-      if ("Notification" in window) {
-        Notification.requestPermission();
+      const form = document.getElementById('formPublicarViaje');
+      const mc = document.getElementById('msgContainerPublicar');
+      const fd = new FormData(form);
+      
+      // Validación de fecha/hora en cliente
+      const fecha = form.fecha.value;
+      const hora = form.hora.value;
+      const fechaHora = new Date(`${fecha}T${hora}`);
+      
+      if (fechaHora < new Date()) {
+          mc.innerHTML = '<div class="error-alert">La fecha y hora deben ser futuras</div>';
+          setTimeout(() => mc.innerHTML = '', 5000);
+          isSubmitting = false;
+          return;
       }
 
-      // Iniciar polling global de mensajes
+      fetch('publicarViaje.php', {
+          method: 'POST',
+          body: fd,
+          credentials: 'include',
+          headers: {
+              'X-Requested-With': 'XMLHttpRequest'
+          }
+      })
+      .then(r => r.text())
+      .then(html => {
+          mc.innerHTML = html;
+          if (html.includes('mensajeExito')) {
+              form.reset();
+              actualizarViajes();
+          }
+          setTimeout(() => mc.innerHTML = '', 5000);
+      })
+      .catch(() => {
+          mc.innerHTML = '<div class="error-alert">Error al enviar el formulario</div>';
+          setTimeout(() => mc.innerHTML = '', 5000);
+      })
+      .finally(() => {
+          isSubmitting = false;
+      });
+    }
+    
+    function initAutocomplete(inputId, mapId) {
+      const input = document.getElementById(inputId);
+      if (!input) return;
+      new google.maps.places.Autocomplete(input,{types:['geocode'],componentRestrictions:{country:'mx'}});
+    }
+    
+    function actualizarViajes() {
+      fetch('obtener_viajes.php')
+        .then(r=>r.text())
+        .then(html=>document.getElementById('viajesContainer').innerHTML=html);
+    }
+
+    // Al cargar página
+    window.addEventListener('DOMContentLoaded', function() {
+      changeSection('Inicio');
+      if ('Notification' in window) Notification.requestPermission();
       startGlobalMessagePolling();
+      actualizarViajes();
+      document.addEventListener('submit', function(e){
+        if (e.target && e.target.id==='formPublicarViaje') {
+          e.preventDefault();
+          enviarFormularioViaje();
+        }
+      });
     });
   </script>
 </head>
@@ -472,29 +430,13 @@
     <aside id="sidebar" class="sidebar fixed left-0 top-[60px] h-full transition-transform duration-300 ease-in-out">
       <nav>
         <ul>
-          <li>
-            <a href="#" data-page="Inicio" class="sidebar-link active" onclick="changeSection('Inicio'); return false;">Inicio</a>
-          </li>
-          <li>
-            <a href="#" data-page="misViajes" class="sidebar-link" onclick="changeSection('misViajes'); return false;">Mis Viajes</a>
-          </li>
-          <li>
-            <a href="#" data-page="publicarViaje" class="sidebar-link" onclick="changeSection('publicarViaje'); return false;">Publicar Viaje</a>
-          </li>
-          <li>
-            <a href="#" data-page="mensajes" class="sidebar-link" onclick="changeSection('mensajes'); return false;">
-              Mensajes
-            </a>
-          </li>
-          <li>
-            <a href="#" data-page="perfil" class="sidebar-link" onclick="changeSection('perfil'); return false;">Perfil</a>
-          </li>
-          <li>
-            <a href="#" data-page="seguridad" class="sidebar-link" onclick="changeSection('seguridad'); return false;">Seguridad</a>
-          </li>
-          <li>
-            <a href="#" data-page="cerrarSesion" class="sidebar-link" onclick="changeSection('cerrarSesion'); return false;">Cerrar Sesión</a>
-          </li>
+          <li><a href="#" data-page="Inicio" class="sidebar-link active" onclick="changeSection('Inicio'); return false;">Inicio</a></li>
+          <li><a href="#" data-page="misViajes" class="sidebar-link" onclick="changeSection('misViajes'); return false;">Mis Viajes</a></li>
+          <li><a href="#" data-page="publicarViaje" class="sidebar-link" onclick="changeSection('publicarViaje'); return false;">Publicar Viaje</a></li>
+          <li><a href="#" data-page="mensajes" class="sidebar-link" onclick="changeSection('mensajes'); return false;">Mensajes</a></li>
+          <li><a href="#" data-page="perfil" class="sidebar-link" onclick="changeSection('perfil'); return false;">Perfil</a></li>
+          <li><a href="#" data-page="seguridad" class="sidebar-link" onclick="changeSection('seguridad'); return false;">Seguridad</a></li>
+          <li><a href="#" data-page="cerrarSesion" class="sidebar-link" onclick="changeSection('cerrarSesion'); return false;">Cerrar Sesión</a></li>
         </ul>
       </nav>
     </aside>
@@ -504,115 +446,76 @@
       <!-- Sección integrada "Inicio" -->
       <div id="contentInicio" class="content-section">
         <h2 class="main-title">Viajes Disponibles</h2>
-        <div class="grid-container">
-          <div class="card">
-            <h3 class="card-title">Mérida → Progreso</h3>
-            <p class="card-text">Fecha: 22 Feb 2025 - 10:00 AM</p>
-            <p class="card-text">Conductor: Juan Pérez</p>
-            <p class="card-text">Espacios disponibles: 2</p>
-            <button class="btn">Reservar</button>
-          </div>
-          <div class="card">
-            <h3 class="card-title">Centro → Universidad</h3>
-            <p class="card-text">Fecha: 22 Feb 2025 - 7:30 AM</p>
-            <p class="card-text">Conductor: Ana López</p>
-            <p class="card-text">Espacios disponibles: 3</p>
-            <button class="btn">Reservar</button>
-          </div>
-          <div class="card">
-            <h3 class="card-title">Universidad → Plaza Mayor</h3>
-            <p class="card-text">Fecha: 22 Feb 2025 - 5:00 PM</p>
-            <p class="card-text">Conductor: Carlos Méndez</p>
-            <p class="card-text">Espacios disponibles: 1</p>
-            <button class="btn">Reservar</button>
-          </div>
+        <div class="grid-container" id="viajesContainer">
+          <?php 
+          // Archivo obtener_viajes.php debe incluir el nombre del conductor
+          include 'obtener_viajes.php'; 
+          ?>
         </div>
         <h2 class="main-title mt-8">Seguimiento del Conductor</h2>
         <div id="map" class="map-container" style="height: 400px;"></div>
       </div>
-      
       <!-- Contenedor para contenido dinámico -->
       <div id="contentContainer" class="content-section hidden"></div>
     </main>
   </div>
 
-  <!-- Script para el toggle del sidebar -->
+  <!-- Toggle sidebar y formularios Perfil/Seguridad -->
   <script>
     document.getElementById('toggleSidebar').addEventListener('click', function () {
-      const sidebar = document.getElementById('sidebar');
-      const mainContent = document.getElementById('mainContent');
-      sidebar.classList.toggle('sidebar-hidden');
-      mainContent.classList.toggle('expanded');
+      document.getElementById('sidebar').classList.toggle('sidebar-hidden');
+      document.getElementById('mainContent').classList.toggle('expanded');
     });
-
+    
     function enviarFormularioPerfil() {
       const form = document.getElementById('formPerfil');
-      const formData = new FormData(form);
-
-      fetch('perfil.php', {
-          method: 'POST',
-          body: formData,
-          credentials: 'include'
-      })
-      .then(response => response.text())
-      .then(data => {
+      const fd = new FormData(form);
+      fetch('perfil.php', { method: 'POST', body: fd, credentials: 'include' })
+        .then(r => r.text()).then(data => {
           document.getElementById('contentContainer').innerHTML = data;
-          const mensajeExito = document.getElementById('mensajeExito');
-          const mensajeError = document.getElementById('mensajeError');
-          if (mensajeExito) setTimeout(() => mensajeExito.remove(), 5000);
-          if (mensajeError) setTimeout(() => mensajeError.remove(), 5000);
-      })
-      .catch(error => console.error("Error en la solicitud fetch:", error));
+          const me = document.getElementById('mensajeExito');
+          const mr = document.getElementById('mensajeError');
+          if (me) setTimeout(() => me.remove(), 5000);
+          if (mr) setTimeout(() => mr.remove(), 5000);
+        })
+        .catch(console.error);
     }
-
+    
     function enviarFormularioSeguridad() {
       const form = document.getElementById('formSeguridad');
-      const formData = new FormData(form);
-
-      fetch('seguridad.php', {
-          method: 'POST',
-          body: formData,
-          credentials: 'include'
-      })
-      .then(response => response.text())
-      .then(data => {
+      const fd = new FormData(form);
+      fetch('seguridad.php', { method: 'POST', body: fd, credentials: 'include' })
+        .then(r => r.text()).then(data => {
           document.getElementById('msgContainer').innerHTML = data;
           if (data.includes('mensajeExito')) form.reset();
           setTimeout(() => {
-              const mensaje = document.getElementById('mensajeExito') || document.getElementById('mensajeError');
-              if (mensaje) mensaje.remove();
+            const m = document.getElementById('mensajeExito') || document.getElementById('mensajeError');
+            if (m) m.remove();
           }, 5000);
-      })
-      .catch(error => console.error("Error en la solicitud fetch:", error));
+        })
+        .catch(console.error);
     }
-
+    
     document.addEventListener('click', function(e) {
-      if (e.target && e.target.classList.contains('toggle-password')) {
-        const targetId = e.target.getAttribute('data-target');
-        const passwordInput = document.getElementById(targetId);
-        if (passwordInput) {
-          if (passwordInput.type === 'password') {
-            passwordInput.type = 'text';
-            e.target.textContent = '🔒';
-          } else {
-            passwordInput.type = 'password';
-            e.target.textContent = '👁️';
+      if (e.target.classList.contains('toggle-password')) {
+        const tgt = document.getElementById(e.target.dataset.target);
+        if (tgt) {
+          if (tgt.type === 'password') { 
+            tgt.type = 'text'; 
+            e.target.textContent = '🔒'; 
+          } else { 
+            tgt.type = 'password'; 
+            e.target.textContent = '👁️'; 
           }
         }
       }
     });
-
+    
     document.addEventListener('input', function(e) {
-      if (e.target && e.target.id === 'new_password') {
-        const password = e.target.value;
-        const hasUpperCase = /[A-Z]/.test(password);
-        const hasNumber = /[0-9]/.test(password);
-        const isValid = password.length >= 8 && hasUpperCase && hasNumber;
-        if (password.length > 0) {
-          e.target.style.borderColor = isValid ? '#27ae60' : '#e74c3c';
-        } else {
-          e.target.style.borderColor = '#ddd';
-        }
+      if (e.target.id === 'new_password') {
+        const p = e.target.value;
+        const ok = p.length>=8 && /[A-Z]/.test(p) && /[0-9]/.test(p);
+        e.target.style.borderColor = p ? (ok ? '#27ae60' : '#e74c3c') : '#ddd';
       }
     });
   </script>
