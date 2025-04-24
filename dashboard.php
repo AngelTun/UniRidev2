@@ -268,7 +268,10 @@
                   if (email!==currentChatEmail||!document.hasFocus()) {
                     const now = Date.now();
                     if (now-window.lastNotificationTime>2000) {
-                      showDesktopNotification(msg.remitente,msg.mensaje);
+                      new Notification(`Nuevo mensaje de ${msg.remitente}`, {
+                        body: msg.mensaje.length>50 ? msg.mensaje.substring(0,50)+'...' : msg.mensaje,
+                        icon: 'Images/notification-icon.png'
+                      });
                       window.lastNotificationTime = now;
                     }
                   }
@@ -291,18 +294,6 @@
           body:`contacto=${encodeURIComponent(email)}`,
           credentials:'include'
         }).then(()=>{ checkUnreadMessages(); updateContactBadge(email,0); });
-      }
-
-      function showDesktopNotification(remitente,mensaje) {
-        if (!('Notification' in window)) return;
-        if (Notification.permission==='granted') {
-          new Notification(`Nuevo mensaje de ${remitente}`, {
-            body:mensaje.length>50?mensaje.substring(0,50)+'...':mensaje,
-            icon:'Images/notification-icon.png'
-          });
-        } else if (Notification.permission!=='denied') {
-          Notification.requestPermission().then(p=>p==='granted'&&new Notification(`Nuevo mensaje de ${remitente}`,{body:mensaje,icon:'Images/notification-icon.png'}));
-        }
       }
 
       function setupMessagesEvents() {
@@ -341,50 +332,45 @@
 
     function enviarFormularioViaje() {
       if (isSubmitting) return;
-      isSubmitting = true;
-
+      isSubmitting = false; // corregido para permitir envíos
       const form = document.getElementById('formPublicarViaje');
       const mc = document.getElementById('msgContainerPublicar');
       const fd = new FormData(form);
 
       // Validación de fecha/hora en cliente
-      const fecha = form.fecha.value;
-      const hora = form.hora.value;
+      const fecha = form.fecha.value, hora = form.hora.value;
       const fechaHora = new Date(`${fecha}T${hora}`);
-
       if (fechaHora < new Date()) {
         mc.innerHTML = '<div class="error-alert">La fecha y hora deben ser futuras</div>';
-        setTimeout(() => mc.innerHTML = '', 5000);
-        isSubmitting = false;
+        setTimeout(()=> mc.innerHTML = '',5000);
         return;
       }
 
       fetch('publicarViaje.php', {
-        method: 'POST',
-        body: fd,
-        credentials: 'include',
-        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        method:'POST',
+        body:fd,
+        credentials:'include',
+        headers:{'X-Requested-With':'XMLHttpRequest'}
       })
-      .then(r => r.text())
-      .then(html => {
+      .then(r=>r.text())
+      .then(html=>{
         mc.innerHTML = html;
         if (html.includes('mensajeExito')) {
           form.reset();
           actualizarViajes();
         }
-        setTimeout(() => mc.innerHTML = '', 5000);
+        setTimeout(()=> mc.innerHTML = '',5000);
       })
-      .catch(() => {
+      .catch(()=>{
         mc.innerHTML = '<div class="error-alert">Error al enviar el formulario</div>';
-        setTimeout(() => mc.innerHTML = '', 5000);
-      })
-      .finally(() => { isSubmitting = false; });
+        setTimeout(()=> mc.innerHTML = '',5000);
+      });
     }
 
     function actualizarViajes() {
       fetch('obtener_viajes.php')
-        .then(r => r.text())
-        .then(html => document.getElementById('viajesContainer').innerHTML = html);
+        .then(r=>r.text())
+        .then(html=>document.getElementById('viajesContainer').innerHTML=html);
     }
 
     // ==================== VIAJES DINÁMICOS & NOTIFICACIONES ====================
@@ -392,58 +378,61 @@
     window.tripsPollingInterval = null;
 
     function checkNewTrips() {
-      fetch(`obtener_nuevos_viajes.php?ultimo_id=${window.lastTripId}`, { credentials: 'include' })
-        .then(r => r.json())
-        .then(data => {
-          if (data.success && data.count > 0) {
-            const inicioLink = document.querySelector('.sidebar-link[data-page="Inicio"]');
-            let badge = inicioLink.querySelector('.notification-badge') || document.createElement('span');
-            badge.className = 'notification-badge';
-            badge.textContent = data.count > 9 ? '9+' : data.count;
-            if (!inicioLink.contains(badge)) inicioLink.appendChild(badge);
-            if (inicioLink.classList.contains('active')) actualizarViajes();
-            data.viajes.forEach(v => {
-              if (Notification.permission === 'granted') {
-                new Notification('Nuevo viaje disponible', {
-                  body: `${v.origen} → ${v.destino} · ${v.fecha} ${v.hora}`
+      const inicioLink = document.querySelector('.sidebar-link[data-page="Inicio"]');
+      const isActive = inicioLink.classList.contains('active');
+      // Si Inicio activo: limpiar badge y refrescar grid
+      if (isActive) {
+        const old = inicioLink.querySelector('.notification-badge');
+        if (old) old.remove();
+        actualizarViajes();
+      }
+      fetch(`obtener_nuevos_viajes.php?ultimo_id=${window.lastTripId}`,{credentials:'include'})
+        .then(r=>r.json())
+        .then(data=>{
+          if (data.success && data.count>0) {
+            data.viajes.forEach(v=>{
+              if (Notification.permission==='granted') {
+                new Notification('Nuevo viaje disponible',{
+                  body:`${v.origen} → ${v.destino} · ${v.fecha} ${v.hora}`
                 });
               }
             });
-            window.lastTripId = data.viajes[data.viajes.length - 1].id;
+            if (!isActive) {
+              let badge = inicioLink.querySelector('.notification-badge')||document.createElement('span');
+              badge.className='notification-badge';
+              badge.textContent=data.count>9?'9+':data.count;
+              if (!inicioLink.contains(badge)) inicioLink.appendChild(badge);
+            }
+            if (isActive) actualizarViajes();
+            window.lastTripId = data.viajes[data.viajes.length-1].id;
           }
-        })
-        .catch(console.error);
+        }).catch(console.error);
     }
 
     function startTripsPolling() {
       if (window.tripsPollingInterval) clearInterval(window.tripsPollingInterval);
-      // Inicializar lastTripId
-      document.querySelectorAll('#viajesContainer .card').forEach(c => {
-        const id = parseInt(c.getAttribute('data-id'), 10);
-        if (id > window.lastTripId) window.lastTripId = id;
+      // Inicializar lastTripId con ítems existentes
+      document.querySelectorAll('#viajesContainer .card').forEach(c=>{
+        const id=parseInt(c.getAttribute('data-id'),10);
+        if (id>window.lastTripId) window.lastTripId=id;
       });
       checkNewTrips();
-      window.tripsPollingInterval = setInterval(checkNewTrips, 30000);
+      window.tripsPollingInterval=setInterval(checkNewTrips,30000);
     }
 
-    document.addEventListener('DOMContentLoaded', () => {
+    document.addEventListener('DOMContentLoaded',()=>{
       changeSection('Inicio');
       if ('Notification' in window) Notification.requestPermission();
       startGlobalMessagePolling();
       actualizarViajes();
       startTripsPolling();
-
-      // Limpiar badge al hacer click en "Inicio"
-      document.querySelector('.sidebar-link[data-page="Inicio"]').addEventListener('click', () => {
-        const b = document.querySelector('.sidebar-link[data-page="Inicio"] .notification-badge');
+      // Limpiar badge al click Inicio
+      document.querySelector('.sidebar-link[data-page="Inicio"]').addEventListener('click',()=>{
+        const b=document.querySelector('.sidebar-link[data-page="Inicio"] .notification-badge');
         if (b) b.remove();
       });
-
-      document.addEventListener('submit', function(e) {
-        if (e.target && e.target.id === 'formPublicarViaje') {
-          e.preventDefault();
-          enviarFormularioViaje();
-        }
+      document.addEventListener('submit',e=>{
+        if(e.target&&e.target.id==='formPublicarViaje'){e.preventDefault();enviarFormularioViaje();}
       });
     });
   </script>
@@ -464,17 +453,15 @@
   <div class="flex h-screen pt-[60px]">
     <!-- Sidebar -->
     <aside id="sidebar" class="sidebar fixed left-0 top-[60px] h-full transition-transform duration-300 ease-in-out">
-      <nav>
-        <ul>
-          <li><a href="#" data-page="Inicio" class="sidebar-link active" onclick="changeSection('Inicio'); return false;">Inicio</a></li>
-          <li><a href="#" data-page="misViajes" class="sidebar-link" onclick="changeSection('misViajes'); return false;">Mis Viajes</a></li>
-          <li><a href="#" data-page="publicarViaje" class="sidebar-link" onclick="changeSection('publicarViaje'); return false;">Publicar Viaje</a></li>
-          <li><a href="#" data-page="mensajes" class="sidebar-link" onclick="changeSection('mensajes'); return false;">Mensajes</a></li>
-          <li><a href="#" data-page="perfil" class="sidebar-link" onclick="changeSection('perfil'); return false;">Perfil</a></li>
-          <li><a href="#" data-page="seguridad" class="sidebar-link" onclick="changeSection('seguridad'); return false;">Seguridad</a></li>
-          <li><a href="#" data-page="cerrarSesion" class="sidebar-link" onclick="changeSection('cerrarSesion'); return false;">Cerrar Sesión</a></li>
-        </ul>
-      </nav>
+      <nav><ul>
+        <li><a href="#" data-page="Inicio" class="sidebar-link active" onclick="changeSection('Inicio'); return false;">Inicio</a></li>
+        <li><a href="#" data-page="misViajes" class="sidebar-link" onclick="changeSection('misViajes'); return false;">Mis Viajes</a></li>
+        <li><a href="#" data-page="publicarViaje" class="sidebar-link" onclick="changeSection('publicarViaje'); return false;">Publicar Viaje</a></li>
+        <li><a href="#" data-page="mensajes" class="sidebar-link" onclick="changeSection('mensajes'); return false;">Mensajes</a></li>
+        <li><a href="#" data-page="perfil" class="sidebar-link" onclick="changeSection('perfil'); return false;">Perfil</a></li>
+        <li><a href="#" data-page="seguridad" class="sidebar-link" onclick="changeSection('seguridad'); return false;">Seguridad</a></li>
+        <li><a href="#" data-page="cerrarSesion" class="sidebar-link" onclick="changeSection('cerrarSesion'); return false;">Cerrar Sesión</a></li>
+      </ul></nav>
     </aside>
 
     <!-- Contenido Principal -->
@@ -501,54 +488,43 @@
     });
 
     function enviarFormularioPerfil() {
-      const form = document.getElementById('formPerfil');
-      const fd = new FormData(form);
-      fetch('perfil.php', { method: 'POST', body: fd, credentials: 'include' })
-        .then(r => r.text()).then(data => {
-          document.getElementById('contentContainer').innerHTML = data;
-          const me = document.getElementById('mensajeExito');
-          const mr = document.getElementById('mensajeError');
-          if (me) setTimeout(() => me.remove(), 5000);
-          if (mr) setTimeout(() => mr.remove(), 5000);
-        })
-        .catch(console.error);
+      const form=document.getElementById('formPerfil'), fd=new FormData(form);
+      fetch('perfil.php',{method:'POST',body:fd,credentials:'include'})
+        .then(r=>r.text()).then(data=>{
+          document.getElementById('contentContainer').innerHTML=data;
+          const me=document.getElementById('mensajeExito'), mr=document.getElementById('mensajeError');
+          if(me) setTimeout(()=>me.remove(),5000);
+          if(mr) setTimeout(()=>mr.remove(),5000);
+        }).catch(console.error);
     }
 
     function enviarFormularioSeguridad() {
-      const form = document.getElementById('formSeguridad');
-      const fd = new FormData(form);
-      fetch('seguridad.php', { method: 'POST', body: fd, credentials: 'include' })
-        .then(r => r.text()).then(data => {
-          document.getElementById('msgContainer').innerHTML = data;
-          if (data.includes('mensajeExito')) form.reset();
-          setTimeout(() => {
-            const m = document.getElementById('mensajeExito') || document.getElementById('mensajeError');
-            if (m) m.remove();
-          }, 5000);
-        })
-        .catch(console.error);
+      const form=document.getElementById('formSeguridad'), fd=new FormData(form);
+      fetch('seguridad.php',{method:'POST',body:fd,credentials:'include'})
+        .then(r=>r.text()).then(data=>{
+          document.getElementById('msgContainer').innerHTML=data;
+          if(data.includes('mensajeExito')) form.reset();
+          setTimeout(()=>{
+            const m=document.getElementById('mensajeExito')||document.getElementById('mensajeError');
+            if(m) m.remove();
+          },5000);
+        }).catch(console.error);
     }
 
-    document.addEventListener('click', function(e) {
-      if (e.target.classList.contains('toggle-password')) {
-        const tgt = document.getElementById(e.target.dataset.target);
-        if (tgt) {
-          if (tgt.type === 'password') {
-            tgt.type = 'text';
-            e.target.textContent = '🔒';
-          } else {
-            tgt.type = 'password';
-            e.target.textContent = '👁️';
-          }
+    document.addEventListener('click',e=>{
+      if(e.target.classList.contains('toggle-password')){
+        const tgt=document.getElementById(e.target.dataset.target);
+        if(tgt){
+          if(tgt.type==='password'){ tgt.type='text'; e.target.textContent='🔒'; }
+          else { tgt.type='password'; e.target.textContent='👁️'; }
         }
       }
     });
 
-    document.addEventListener('input', function(e) {
-      if (e.target.id === 'new_password') {
-        const p = e.target.value;
-        const ok = p.length >= 8 && /[A-Z]/.test(p) && /[0-9]/.test(p);
-        e.target.style.borderColor = p ? (ok ? '#27ae60' : '#e74c3c') : '#ddd';
+    document.addEventListener('input',e=>{
+      if(e.target.id==='new_password'){
+        const p=e.target.value, ok=p.length>=8&&/[A-Z]/.test(p)&&/[0-9]/.test(p);
+        e.target.style.borderColor = p ? (ok?'#27ae60':'#e74c3c'):'#ddd';
       }
     });
   </script>
