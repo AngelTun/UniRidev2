@@ -57,4 +57,19 @@ body {
     background-color: #9f8500;
   }
   
-  
+
+    /* Estilos del botón de regresar */
+    .boton-regresar {
+      display: inline-block;
+      margin-top: 20px;
+      padding: 10px 20px;
+      background-color: #e0e0e0;
+      color: #333;
+      text-decoration: none;
+      border-radius: 5px;
+      font-weight: bold;
+      transition: background-color 0.3s;
+    }
+    .boton-regresar:hover {
+      background-color: #ccc;
+    }

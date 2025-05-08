@@ -64,6 +64,8 @@
       </div>
       <button type="submit" class="btn-register">Confirmar Registro</button>
     </form>
+    <!-- Botón de regresar -->
+    <a href="iniciosesion.php" class="boton-regresar">← Regresar</a>
   </div>
 
   <!-- Validación básica para que las contraseñas coincidan y nueva validación en tiempo real -->

@@ -16,6 +16,8 @@
       </div>
       <button type="submit" class="btn-recover">Enviar</button>
     </form>
+    <!-- Botón de regresar -->
+    <a href="iniciosesion.php" class="boton-regresar">← Regresar</a>
   </div>
 
   <script>

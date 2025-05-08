@@ -17,7 +17,6 @@
   <link rel="stylesheet" href="cerrarsesion.css" />
   <link rel="stylesheet" href="publicar_viaje.css" />
   <style>
-    /* Estilos para notificaciones */
     .notification-badge {
       position: absolute;
       top: -5px;
@@ -49,13 +48,6 @@
     .sidebar-link {
       position: relative;
     }
-    /* Animaciones para mensajes */
-    .message.sent {
-      animation: messageSent 0.3s ease-out;
-    }
-    .message.received {
-      animation: messageReceived 0.3s ease-out;
-    }
     @keyframes messageSent {
       from { transform: translateX(10px); opacity: 0; }
       to { transform: translateX(0); opacity: 1; }
@@ -64,7 +56,6 @@
       from { transform: translateX(-10px); opacity: 0; }
       to { transform: translateX(0); opacity: 1; }
     }
-    /* Indicador de "escribiendo" */
     .typing-indicator {
       display: flex;
       padding: 8px;
@@ -78,20 +69,16 @@
       margin: 0 2px;
       animation: typingAnimation 1.4s infinite ease-in-out;
     }
-    .typing-dot:nth-child(1) { animation-delay: 0s; }
-    .typing-dot:nth-child(2) { animation-delay: 0.2s; }
-    .typing-dot:nth-child(3) { animation-delay: 0.4s; }
     @keyframes typingAnimation {
       0%, 60%, 100% { transform: translateY(0); }
       30% { transform: translateY(-5px); }
     }
-    /* Estilo para mensajes de publicar viaje */
     #msgContainerPublicar {
       margin-bottom: 1.5rem;
     }
   </style>
   <script>
-    // Variables globales para mensajes y polling
+    // Variables globales
     window.messagePollingInterval = null;
     window.globalPollingInterval = null;
     window.currentChatEmail = '';
@@ -100,9 +87,9 @@
     window.unreadCounts = {};
     let isSubmitting = false;
 
-    // Inicializa mapa en "Inicio"
+    // Mapa
     function initMap() {
-      var map = new google.maps.Map(document.getElementById('map'), {
+      const map = new google.maps.Map(document.getElementById('map'), {
         center: { lat: 20.9671, lng: -89.6236 },
         zoom: 12
       });
@@ -113,12 +100,13 @@
       });
     }
 
-    // Cambia de sección y carga PHP correspondiente
+    // Navegación entre secciones
     function changeSection(page) {
       if (window.messagePollingInterval) {
         clearInterval(window.messagePollingInterval);
         window.messagePollingInterval = null;
       }
+      
       document.querySelectorAll('.sidebar-link').forEach(l => l.classList.remove('active'));
       document.querySelector(`.sidebar-link[data-page="${page}"]`).classList.add('active');
 
@@ -133,6 +121,36 @@
           .then(html => {
             document.getElementById('contentContainer').innerHTML = html;
             document.getElementById('contentContainer').classList.remove('hidden');
+            
+            // Implementación específica para Mis Viajes
+            if (page === 'misViajes') {
+              const form = document.getElementById('filtrosForm');
+              const resultados = document.getElementById('resultados');
+              const btnExportar = document.getElementById('btnExportar');
+
+              form?.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const formData = new FormData(form);
+                const params = new URLSearchParams(formData);
+                
+                try {
+                  const response = await fetch(`filtrar_viajes.php?${params}`, {
+                    credentials: 'include',
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                  });
+                  
+                  if (!response.ok) throw new Error('Error al filtrar');
+                  
+                  resultados.innerHTML = await response.text();
+                  window.history.replaceState({}, '', `misViajes.php?${params}`);
+                  btnExportar.href = `exportar_viajes.php?${params}`;
+                  
+                } catch (error) {
+                  resultados.innerHTML = `<div class="text-red-500 text-center p-4">${error.message}</div>`;
+                }
+              });
+            }
+            
             if (page === 'mensajes') initializeMessages();
             if (page === 'publicarViaje') setupPublicarViaje();
           })
@@ -143,7 +161,7 @@
       }
     }
 
-    // Polling global de mensajes no leídos
+    // Mensajes
     function startGlobalMessagePolling() {
       if (window.globalPollingInterval) clearInterval(window.globalPollingInterval);
       checkUnreadMessages();
@@ -180,7 +198,7 @@
       } else if (badge.parentNode) badge.remove();
     }
 
-    // ==================== SECCIÓN MENSAJES ====================
+    // Mensajería
     function initializeMessages() {
       let currentChatEmail = '';
       function loadChat(email) {
@@ -320,7 +338,7 @@
       if (init) loadChat(init.getAttribute('data-email'));
     }
 
-    // ==================== PUBLICAR VIAJE ====================
+    // Publicar Viaje
     function setupPublicarViaje() {
       const cc = document.getElementById('contentContainer');
       if (!document.getElementById('msgContainerPublicar')) {
@@ -332,12 +350,11 @@
 
     function enviarFormularioViaje() {
       if (isSubmitting) return;
-      isSubmitting = false; // corregido para permitir envíos
+      isSubmitting = false;
       const form = document.getElementById('formPublicarViaje');
       const mc = document.getElementById('msgContainerPublicar');
       const fd = new FormData(form);
 
-      // Validación de fecha/hora en cliente
       const fecha = form.fecha.value, hora = form.hora.value;
       const fechaHora = new Date(`${fecha}T${hora}`);
       if (fechaHora < new Date()) {
@@ -373,14 +390,13 @@
         .then(html=>document.getElementById('viajesContainer').innerHTML=html);
     }
 
-    // ==================== VIAJES DINÁMICOS & NOTIFICACIONES ====================
+    // Notificaciones de Viajes
     window.lastTripId = 0;
     window.tripsPollingInterval = null;
 
     function checkNewTrips() {
       const inicioLink = document.querySelector('.sidebar-link[data-page="Inicio"]');
       const isActive = inicioLink.classList.contains('active');
-      // Si Inicio activo: limpiar badge y refrescar grid
       if (isActive) {
         const old = inicioLink.querySelector('.notification-badge');
         if (old) old.remove();
@@ -411,7 +427,6 @@
 
     function startTripsPolling() {
       if (window.tripsPollingInterval) clearInterval(window.tripsPollingInterval);
-      // Inicializar lastTripId con ítems existentes
       document.querySelectorAll('#viajesContainer .card').forEach(c=>{
         const id=parseInt(c.getAttribute('data-id'),10);
         if (id>window.lastTripId) window.lastTripId=id;
@@ -420,17 +435,19 @@
       window.tripsPollingInterval=setInterval(checkNewTrips,30000);
     }
 
+    // Inicialización
     document.addEventListener('DOMContentLoaded',()=>{
       changeSection('Inicio');
       if ('Notification' in window) Notification.requestPermission();
       startGlobalMessagePolling();
       actualizarViajes();
       startTripsPolling();
-      // Limpiar badge al click Inicio
+      
       document.querySelector('.sidebar-link[data-page="Inicio"]').addEventListener('click',()=>{
         const b=document.querySelector('.sidebar-link[data-page="Inicio"] .notification-badge');
         if (b) b.remove();
       });
+      
       document.addEventListener('submit',e=>{
         if(e.target&&e.target.id==='formPublicarViaje'){e.preventDefault();enviarFormularioViaje();}
       });
@@ -438,7 +455,7 @@
   </script>
 </head>
 <body class="bg-gray-100">
-  <!-- Encabezado fijo -->
+  <!-- Encabezado -->
   <header class="header fixed top-0 left-0 right-0 z-50 bg-white shadow-md">
     <div class="container mx-auto flex items-center px-4 py-2">
       <button id="toggleSidebar" class="toggle-btn">☰</button>
@@ -453,20 +470,21 @@
   <div class="flex h-screen pt-[60px]">
     <!-- Sidebar -->
     <aside id="sidebar" class="sidebar fixed left-0 top-[60px] h-full transition-transform duration-300 ease-in-out">
-      <nav><ul>
-        <li><a href="#" data-page="Inicio" class="sidebar-link active" onclick="changeSection('Inicio'); return false;">Inicio</a></li>
-        <li><a href="#" data-page="misViajes" class="sidebar-link" onclick="changeSection('misViajes'); return false;">Mis Viajes</a></li>
-        <li><a href="#" data-page="publicarViaje" class="sidebar-link" onclick="changeSection('publicarViaje'); return false;">Publicar Viaje</a></li>
-        <li><a href="#" data-page="mensajes" class="sidebar-link" onclick="changeSection('mensajes'); return false;">Mensajes</a></li>
-        <li><a href="#" data-page="perfil" class="sidebar-link" onclick="changeSection('perfil'); return false;">Perfil</a></li>
-        <li><a href="#" data-page="seguridad" class="sidebar-link" onclick="changeSection('seguridad'); return false;">Seguridad</a></li>
-        <li><a href="#" data-page="cerrarSesion" class="sidebar-link" onclick="changeSection('cerrarSesion'); return false;">Cerrar Sesión</a></li>
-      </ul></nav>
+      <nav>
+        <ul>
+          <li><a href="#" data-page="Inicio" class="sidebar-link active" onclick="changeSection('Inicio'); return false;">Inicio</a></li>
+          <li><a href="#" data-page="misViajes" class="sidebar-link" onclick="changeSection('misViajes'); return false;">Mis Viajes</a></li>
+          <li><a href="#" data-page="publicarViaje" class="sidebar-link" onclick="changeSection('publicarViaje'); return false;">Publicar Viaje</a></li>
+          <li><a href="#" data-page="mensajes" class="sidebar-link" onclick="changeSection('mensajes'); return false;">Mensajes</a></li>
+          <li><a href="#" data-page="perfil" class="sidebar-link" onclick="changeSection('perfil'); return false;">Perfil</a></li>
+          <li><a href="#" data-page="seguridad" class="sidebar-link" onclick="changeSection('seguridad'); return false;">Seguridad</a></li>
+          <li><a href="#" data-page="cerrarSesion" class="sidebar-link" onclick="changeSection('cerrarSesion'); return false;">Cerrar Sesión</a></li>
+        </ul>
+      </nav>
     </aside>
 
-    <!-- Contenido Principal -->
+    <!-- Contenido -->
     <main id="mainContent" class="main-content ml-[200px] transition-all duration-300">
-      <!-- Sección integrada "Inicio" -->
       <div id="contentInicio" class="content-section">
         <h2 class="main-title">Viajes Disponibles</h2>
         <div class="grid-container" id="viajesContainer">
@@ -475,18 +493,19 @@
         <h2 class="main-title mt-8">Seguimiento del Conductor</h2>
         <div id="map" class="map-container" style="height: 400px;"></div>
       </div>
-      <!-- Contenedor para contenido dinámico -->
       <div id="contentContainer" class="content-section hidden"></div>
     </main>
   </div>
 
-  <!-- Toggle sidebar y formularios Perfil/Seguridad -->
+  <!-- Scripts adicionales -->
   <script>
+    // Toggle Sidebar
     document.getElementById('toggleSidebar').addEventListener('click', function () {
       document.getElementById('sidebar').classList.toggle('sidebar-hidden');
       document.getElementById('mainContent').classList.toggle('expanded');
     });
 
+    // Perfil
     function enviarFormularioPerfil() {
       const form=document.getElementById('formPerfil'), fd=new FormData(form);
       fetch('perfil.php',{method:'POST',body:fd,credentials:'include'})
@@ -498,6 +517,7 @@
         }).catch(console.error);
     }
 
+    // Seguridad
     function enviarFormularioSeguridad() {
       const form=document.getElementById('formSeguridad'), fd=new FormData(form);
       fetch('seguridad.php',{method:'POST',body:fd,credentials:'include'})
@@ -511,16 +531,18 @@
         }).catch(console.error);
     }
 
+    // Toggle Password
     document.addEventListener('click',e=>{
       if(e.target.classList.contains('toggle-password')){
         const tgt=document.getElementById(e.target.dataset.target);
         if(tgt){
-          if(tgt.type==='password'){ tgt.type='text'; e.target.textContent='🔒'; }
-          else { tgt.type='password'; e.target.textContent='👁️'; }
+          tgt.type = tgt.type === 'password' ? 'text' : 'password';
+          e.target.textContent = tgt.type === 'password' ? '👁️' : '🔒';
         }
       }
     });
 
+    // Validación Password
     document.addEventListener('input',e=>{
       if(e.target.id==='new_password'){
         const p=e.target.value, ok=p.length>=8&&/[A-Z]/.test(p)&&/[0-9]/.test(p);
@@ -528,5 +550,31 @@
       }
     });
   </script>
+  <!-- Validación Frontend con SweetAlert -->
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script>
+function validarFiltros() {
+    const campos = [
+        document.querySelector('input[name="fecha"]').value.trim(),
+        document.querySelector('input[name="origen"]').value.trim(),
+        document.querySelector('input[name="destino"]').value.trim(),
+        document.querySelector('input[name="asientos"]').value.trim()
+    ];
+
+    const todosVacios = campos.every(valor => valor === '');
+
+    if(todosVacios) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'Filtros vacíos',
+            text: 'Debes completar al menos un campo para realizar la búsqueda',
+            confirmButtonColor: '#4f46e5',
+            confirmButtonText: 'Entendido'
+        });
+        return false;
+    }
+    return true;
+}
+</script>
 </body>
 </html>
