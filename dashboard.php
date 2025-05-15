@@ -7,15 +7,20 @@
   <title>Dashboard - Compartir Viajes</title>
   <!-- TailwindCSS -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- API de Google Maps -->
-  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyB-VtkPeG2cL2SjoAIufnNf39U-RA0qQRc&libraries=places"></script>
-  <!-- Nuestro CSS personalizado -->
+
+  <!-- Leaflet CSS & JS para OpenStreetMap -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+  <!-- Nuestros CSS personalizados -->
   <link rel="stylesheet" href="dashboard.css" />
   <link rel="stylesheet" href="perfil.css" />
   <link rel="stylesheet" href="mensajes.css" />
   <link rel="stylesheet" href="seguridad.css" />
   <link rel="stylesheet" href="cerrarsesion.css" />
   <link rel="stylesheet" href="publicar_viaje.css" />
+
+  <!-- Estilos para sugerencias OSM -->
   <style>
     .notification-badge {
       position: absolute;
@@ -76,7 +81,27 @@
     #msgContainerPublicar {
       margin-bottom: 1.5rem;
     }
+    /* Estilos para sugerencias OSM */
+    .autocomplete-list {
+      position: absolute;
+      z-index: 1000;
+      background: white;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      max-height: 200px;
+      overflow-y: auto;
+      width: calc(100% - 2px);
+      margin-top: 2px;
+    }
+    .autocomplete-list li {
+      padding: 6px 8px;
+      cursor: pointer;
+    }
+    .autocomplete-list li:hover {
+      background: #f0f0f0;
+    }
   </style>
+
   <script>
     // Variables globales
     window.messagePollingInterval = null;
@@ -87,17 +112,80 @@
     window.unreadCounts = {};
     let isSubmitting = false;
 
-    // Mapa
-    function initMap() {
-      const map = new google.maps.Map(document.getElementById('map'), {
-        center: { lat: 20.9671, lng: -89.6236 },
-        zoom: 12
-      });
-      new google.maps.Marker({
-        position: { lat: 20.9671, lng: -89.6236 },
-        map: map,
-        title: "Ubicación del Conductor"
-      });
+    // -- Función para Leaflet en sección Inicio --
+    function initLeafletMap() {
+      const mapEl = document.getElementById('map');
+      if (!mapEl) return;
+      const map = L.map(mapEl).setView([20.9671, -89.6236], 12);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+      L.marker([20.9671, -89.6236]).addTo(map)
+        .bindPopup('Ubicación del Conductor').openPopup();
+    }
+
+    // -- Funciones de Autocomplete y marcadores OSM para Publicar Viaje --
+    async function geocode(query) {
+      const resp = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(query)}`
+      );
+      return resp.json();
+    }
+    function initOSMAutocompletePublicar() {
+      const cont = document.getElementById('mapaViaje');
+      if (!cont) return;
+
+      const map = L.map(cont).setView([20.9671, -89.6236], 12);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+
+      let markerOrigen, markerDestino;
+
+      function setupAutocomplete(inputId, which) {
+        const input = document.getElementById(inputId);
+        const list  = document.createElement('ul');
+        list.className = 'autocomplete-list';
+        input.parentNode.style.position = 'relative';
+        input.parentNode.appendChild(list);
+
+        input.addEventListener('input', async () => {
+          const term = input.value.trim();
+          if (term.length < 3) {
+            list.innerHTML = '';
+            return;
+          }
+          const places = await geocode(term);
+          list.innerHTML = '';
+          places.forEach(p => {
+            const item = document.createElement('li');
+            item.textContent = p.display_name;
+            item.addEventListener('click', () => {
+              input.value = p.display_name;
+              list.innerHTML = '';
+              const latlng = [parseFloat(p.lat), parseFloat(p.lon)];
+              if (which === 'origen') {
+                markerOrigen = markerOrigen || L.marker(latlng).addTo(map);
+                markerOrigen.setLatLng(latlng);
+              } else {
+                markerDestino = markerDestino || L.marker(latlng).addTo(map);
+                markerDestino.setLatLng(latlng);
+              }
+              map.setView(latlng, 14);
+            });
+            list.appendChild(item);
+          });
+        });
+
+        document.addEventListener('click', e => {
+          if (!input.parentNode.contains(e.target)) {
+            list.innerHTML = '';
+          }
+        });
+      }
+
+      setupAutocomplete('origen',  'origen');
+      setupAutocomplete('destino', 'destino');
     }
 
     // Navegación entre secciones
@@ -106,14 +194,14 @@
         clearInterval(window.messagePollingInterval);
         window.messagePollingInterval = null;
       }
-      
+
       document.querySelectorAll('.sidebar-link').forEach(l => l.classList.remove('active'));
       document.querySelector(`.sidebar-link[data-page="${page}"]`).classList.add('active');
 
       if (page === 'Inicio') {
         document.getElementById('contentInicio').classList.remove('hidden');
         document.getElementById('contentContainer').classList.add('hidden');
-        initMap();
+        initLeafletMap();
       } else {
         document.getElementById('contentInicio').classList.add('hidden');
         fetch(page + '.php', { credentials: 'include' })
@@ -121,8 +209,7 @@
           .then(html => {
             document.getElementById('contentContainer').innerHTML = html;
             document.getElementById('contentContainer').classList.remove('hidden');
-            
-            // Implementación específica para Mis Viajes
+
             if (page === 'misViajes') {
               const form = document.getElementById('filtrosForm');
               const resultados = document.getElementById('resultados');
@@ -132,25 +219,25 @@
                 e.preventDefault();
                 const formData = new FormData(form);
                 const params = new URLSearchParams(formData);
-                
+
                 try {
                   const response = await fetch(`filtrar_viajes.php?${params}`, {
                     credentials: 'include',
                     headers: { 'X-Requested-With': 'XMLHttpRequest' }
                   });
-                  
+
                   if (!response.ok) throw new Error('Error al filtrar');
-                  
+
                   resultados.innerHTML = await response.text();
                   window.history.replaceState({}, '', `misViajes.php?${params}`);
                   btnExportar.href = `exportar_viajes.php?${params}`;
-                  
+
                 } catch (error) {
                   resultados.innerHTML = `<div class="text-red-500 text-center p-4">${error.message}</div>`;
                 }
               });
             }
-            
+
             if (page === 'mensajes') initializeMessages();
             if (page === 'publicarViaje') setupPublicarViaje();
           })
@@ -246,7 +333,9 @@
               div.dataset.messageId = data.id;
               div.innerHTML = `<div class="message-content">${data.mensaje}</div><div class="message-time">${data.hora}</div>`;
               chatMessages.appendChild(div);
-              form.reset(); scrollToBottom(); checkNewMessages(currentChatEmail);
+              form.reset();
+              scrollToBottom();
+              checkNewMessages(currentChatEmail);
             } else alert('Error: ' + data.error);
           })
           .catch(() => alert('Error al enviar el mensaje'));
@@ -258,12 +347,16 @@
       }
 
       function startMessagePolling(email) {
-        stopMessagePolling(); checkNewMessages(email);
+        stopMessagePolling();
+        checkNewMessages(email);
         window.messagePollingInterval = setInterval(() => checkNewMessages(email), 3000);
       }
 
       function stopMessagePolling() {
-        if (window.messagePollingInterval) { clearInterval(window.messagePollingInterval); window.messagePollingInterval = null; }
+        if (window.messagePollingInterval) {
+          clearInterval(window.messagePollingInterval);
+          window.messagePollingInterval = null;
+        }
       }
 
       function checkNewMessages(email) {
@@ -282,7 +375,8 @@
                   d.className = `message ${msg.remitente===('<?= $_SESSION['usuario']??'' ?>')?'sent':'received'}`;
                   d.dataset.messageId = msg.id;
                   d.innerHTML = `<div class="message-content">${msg.mensaje}</div><div class="message-time">${msg.hora}</div>`;
-                  cm.appendChild(d); newFlag = true;
+                  cm.appendChild(d);
+                  newFlag = true;
                   if (email!==currentChatEmail||!document.hasFocus()) {
                     const now = Date.now();
                     if (now-window.lastNotificationTime>2000) {
@@ -311,7 +405,10 @@
           headers:{'Content-Type':'application/x-www-form-urlencoded'},
           body:`contacto=${encodeURIComponent(email)}`,
           credentials:'include'
-        }).then(()=>{ checkUnreadMessages(); updateContactBadge(email,0); });
+        }).then(()=>{
+          checkUnreadMessages();
+          updateContactBadge(email,0);
+        });
       }
 
       function setupMessagesEvents() {
@@ -346,11 +443,12 @@
         div.id = 'msgContainerPublicar';
         cc.prepend(div);
       }
+      initOSMAutocompletePublicar();
     }
 
     function enviarFormularioViaje() {
       if (isSubmitting) return;
-      isSubmitting = false;
+      isSubmitting = true;
       const form = document.getElementById('formPublicarViaje');
       const mc = document.getElementById('msgContainerPublicar');
       const fd = new FormData(form);
@@ -360,6 +458,7 @@
       if (fechaHora < new Date()) {
         mc.innerHTML = '<div class="error-alert">La fecha y hora deben ser futuras</div>';
         setTimeout(()=> mc.innerHTML = '',5000);
+        isSubmitting = false;
         return;
       }
 
@@ -377,10 +476,12 @@
           actualizarViajes();
         }
         setTimeout(()=> mc.innerHTML = '',5000);
+        isSubmitting = false;
       })
       .catch(()=>{
         mc.innerHTML = '<div class="error-alert">Error al enviar el formulario</div>';
         setTimeout(()=> mc.innerHTML = '',5000);
+        isSubmitting = false;
       });
     }
 
@@ -442,12 +543,12 @@
       startGlobalMessagePolling();
       actualizarViajes();
       startTripsPolling();
-      
+
       document.querySelector('.sidebar-link[data-page="Inicio"]').addEventListener('click',()=>{
         const b=document.querySelector('.sidebar-link[data-page="Inicio"] .notification-badge');
         if (b) b.remove();
       });
-      
+
       document.addEventListener('submit',e=>{
         if(e.target&&e.target.id==='formPublicarViaje'){e.preventDefault();enviarFormularioViaje();}
       });
@@ -551,30 +652,30 @@
     });
   </script>
   <!-- Validación Frontend con SweetAlert -->
-<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-<script>
-function validarFiltros() {
-    const campos = [
-        document.querySelector('input[name="fecha"]').value.trim(),
-        document.querySelector('input[name="origen"]').value.trim(),
-        document.querySelector('input[name="destino"]').value.trim(),
-        document.querySelector('input[name="asientos"]').value.trim()
-    ];
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script>
+  function validarFiltros() {
+      const campos = [
+          document.querySelector('input[name="fecha"]').value.trim(),
+          document.querySelector('input[name="origen"]').value.trim(),
+          document.querySelector('input[name="destino"]').value.trim(),
+          document.querySelector('input[name="asientos"]').value.trim()
+      ];
 
-    const todosVacios = campos.every(valor => valor === '');
+      const todosVacios = campos.every(valor => valor === '');
 
-    if(todosVacios) {
-        Swal.fire({
-            icon: 'warning',
-            title: 'Filtros vacíos',
-            text: 'Debes completar al menos un campo para realizar la búsqueda',
-            confirmButtonColor: '#4f46e5',
-            confirmButtonText: 'Entendido'
-        });
-        return false;
-    }
-    return true;
-}
-</script>
+      if(todosVacios) {
+          Swal.fire({
+              icon: 'warning',
+              title: 'Filtros vacíos',
+              text: 'Debes completar al menos un campo para realizar la búsqueda',
+              confirmButtonColor: '#4f46e5',
+              confirmButtonText: 'Entendido'
+          });
+          return false;
+      }
+      return true;
+  }
+  </script>
 </body>
 </html>

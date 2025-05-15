@@ -25,6 +25,7 @@ $conductor_id = $_SESSION['id'];
 $errores     = [];
 $mensajeExito = '';
 
+// Procesar envío del formulario
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $origen   = filter_input(INPUT_POST, 'origen',   FILTER_SANITIZE_STRING);
     $destino  = filter_input(INPUT_POST, 'destino',  FILTER_SANITIZE_STRING);
@@ -64,7 +65,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Si es petición AJAX, devolvemos *solo* las alertas
+// Si es petición AJAX, devolvemos solo las alertas
 if (
     !empty($_SERVER['HTTP_X_REQUESTED_WITH']) &&
     strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest'
@@ -84,6 +85,7 @@ if (
 }
 ?>
 
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
 <link rel="stylesheet" href="publicar_viaje.css" />
 
 <!-- CONTENEDOR DE ALERTAS -->
@@ -92,15 +94,15 @@ if (
 <!-- FORMULARIO -->
 <div class="publicar-viaje-container">
     <h2 class="section-title">Publicar Nuevo Viaje</h2>
-    <form id="formPublicarViaje" method="POST" class="viaje-form">
+    <form id="formPublicarViaje" method="POST" class="viaje-form" autocomplete="off">
         <div class="form-grid">
             <div class="input-group">
                 <label for="origen">Origen:</label>
-                <input type="text" id="origen" name="origen" required class="input-field" placeholder="Ingresa el origen del viaje">
+                <input type="text" id="origen" name="origen" required class="input-field" placeholder="Selecciona o escribe el origen">
             </div>
             <div class="input-group">
                 <label for="destino">Destino:</label>
-                <input type="text" id="destino" name="destino" required class="input-field" placeholder="Ingresa el destino del viaje">
+                <input type="text" id="destino" name="destino" required class="input-field" placeholder="Selecciona o escribe el destino">
             </div>
             <div class="input-group">
                 <label for="fecha">Fecha:</label>
@@ -126,6 +128,10 @@ if (
             <label for="detalles">Detalles adicionales:</label>
             <textarea id="detalles" name="detalles" class="input-field textarea-field"
                 placeholder="Ejemplo: Punto de encuentro, paradas, normas del viaje..."></textarea>
+        </div>
+        <!-- Mapa para selección de origen y destino -->
+        <div style="height: 350px; margin-bottom: 20px;">
+            <div id="mapaViaje" style="width: 100%; height: 100%; border-radius: 8px;"></div>
         </div>
         <button type="submit" class="submit-btn">Publicar Viaje</button>
     </form>
