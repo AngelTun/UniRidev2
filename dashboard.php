@@ -124,16 +124,25 @@
         .bindPopup('Ubicación del Conductor').openPopup();
     }
 
-    // -- Funciones de Autocomplete y marcadores OSM para Publicar Viaje --
+    // USAR LOCATIONIQ PARA AUTOCOMPLETE
+    const LOCATIONIQ_API_KEY = "pk.5c9995b97f3c62de4ee3ac8990f17d1c";
+
     async function geocode(query) {
       const resp = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(query)}`
+        `https://us1.locationiq.com/v1/search?key=${LOCATIONIQ_API_KEY}&q=${encodeURIComponent(query)}&format=json&limit=5`
       );
       return resp.json();
     }
+
     function initOSMAutocompletePublicar() {
       const cont = document.getElementById('mapaViaje');
       if (!cont) return;
+
+      // Si ya existe un mapa anterior, remuévelo para evitar conflicto.
+      if (cont._leaflet_id) {
+        cont._leaflet_id = null;
+        cont.innerHTML = ""; // Limpia el div antes de volver a crear el mapa
+      }
 
       const map = L.map(cont).setView([20.9671, -89.6236], 12);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -144,40 +153,57 @@
 
       function setupAutocomplete(inputId, which) {
         const input = document.getElementById(inputId);
-        const list  = document.createElement('ul');
-        list.className = 'autocomplete-list';
-        input.parentNode.style.position = 'relative';
-        input.parentNode.appendChild(list);
+        if (!input) return; // Asegúrate que existe el input
+        let list = input.parentNode.querySelector('.autocomplete-list');
+        if (!list) {
+          list = document.createElement('ul');
+          list.className = 'autocomplete-list';
+          input.parentNode.style.position = 'relative';
+          input.parentNode.appendChild(list);
+        }
 
-        input.addEventListener('input', async () => {
+        // Limpia cualquier listener previo
+        input.oninput = null;
+
+        input.addEventListener('input', async function () {
           const term = input.value.trim();
           if (term.length < 3) {
             list.innerHTML = '';
             return;
           }
-          const places = await geocode(term);
-          list.innerHTML = '';
-          places.forEach(p => {
-            const item = document.createElement('li');
-            item.textContent = p.display_name;
-            item.addEventListener('click', () => {
-              input.value = p.display_name;
-              list.innerHTML = '';
-              const latlng = [parseFloat(p.lat), parseFloat(p.lon)];
-              if (which === 'origen') {
-                markerOrigen = markerOrigen || L.marker(latlng).addTo(map);
-                markerOrigen.setLatLng(latlng);
-              } else {
-                markerDestino = markerDestino || L.marker(latlng).addTo(map);
-                markerDestino.setLatLng(latlng);
-              }
-              map.setView(latlng, 14);
+          // Limpia la lista antes de nueva búsqueda
+          list.innerHTML = '<li style="color:#aaa;padding:6px 8px;">Buscando...</li>';
+          try {
+            const places = await geocode(term);
+            list.innerHTML = '';
+            if (!places.length) {
+              list.innerHTML = '<li style="color:#aaa;padding:6px 8px;">Sin resultados</li>';
+            }
+            places.forEach(p => {
+              const item = document.createElement('li');
+              item.textContent = p.display_name;
+              item.addEventListener('click', () => {
+                input.value = p.display_name;
+                list.innerHTML = '';
+                const latlng = [parseFloat(p.lat), parseFloat(p.lon)];
+                if (which === 'origen') {
+                  markerOrigen = markerOrigen || L.marker(latlng).addTo(map);
+                  markerOrigen.setLatLng(latlng);
+                } else {
+                  markerDestino = markerDestino || L.marker(latlng).addTo(map);
+                  markerDestino.setLatLng(latlng);
+                }
+                map.setView(latlng, 14);
+              });
+              list.appendChild(item);
             });
-            list.appendChild(item);
-          });
+          } catch (err) {
+            list.innerHTML = '<li style="color:red;padding:6px 8px;">Error buscando</li>';
+          }
         });
 
-        document.addEventListener('click', e => {
+        // Limpia lista al hacer click fuera
+        document.addEventListener('click', function docClick(e) {
           if (!input.parentNode.contains(e.target)) {
             list.innerHTML = '';
           }
@@ -187,7 +213,6 @@
       setupAutocomplete('origen',  'origen');
       setupAutocomplete('destino', 'destino');
     }
-
     // Navegación entre secciones
     function changeSection(page) {
       if (window.messagePollingInterval) {

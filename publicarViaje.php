@@ -86,7 +86,6 @@ if (
 ?>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-<link rel="stylesheet" href="publicar_viaje.css" />
 
 <!-- CONTENEDOR DE ALERTAS -->
 <div id="msgContainerPublicar"></div>
