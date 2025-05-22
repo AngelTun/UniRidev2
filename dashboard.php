@@ -100,31 +100,165 @@
     .autocomplete-list li:hover {
       background: #f0f0f0;
     }
+    .sidebar {
+      width: 200px;
+      transform: translateX(0);
+      transition: transform 0.3s ease-in-out;
+    }
+    .sidebar-hidden {
+      transform: translateX(-100%);
+    }
+    .main-content {
+      transition: margin-left 0.3s ease-in-out;
+    }
+    .seguir-btn {
+      background: #3B82F6;
+      color: white;
+      padding: 8px 16px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+    .seguir-btn:hover {
+      filter: brightness(90%);
+    }
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 0.875rem;
+      color: white;
+      margin-left: 10px;
+    }
+    .bg-blue-500 { background-color: #3B82F6; }
+    .card {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+      transition: transform 0.2s;
+    }
+    .card:hover {
+      transform: translateY(-2px);
+    }
+    .map-container {
+      border-radius: 12px;
+      overflow: hidden;
+      margin-top: 1rem;
+    }
   </style>
 
   <script>
     // Variables globales
+    let conductorMap = null;
+    let conductorMarker = null;
+    let ubicacionInterval = null;
+    let markerOrigen = null;
+    let markerDestino = null;
     window.messagePollingInterval = null;
     window.globalPollingInterval = null;
     window.currentChatEmail = '';
     window.unreadMessages = 0;
     window.lastNotificationTime = 0;
     window.unreadCounts = {};
+    window.lastTripId = 0;
+    window.tripsPollingInterval = null;
     let isSubmitting = false;
 
-    // -- Función para Leaflet en sección Inicio --
+    // ========== FUNCIONALIDADES DE RESERVA Y SEGUIMIENTO ========== //
     function initLeafletMap() {
       const mapEl = document.getElementById('map');
       if (!mapEl) return;
-      const map = L.map(mapEl).setView([20.9671, -89.6236], 12);
+      
+      conductorMap = L.map(mapEl).setView([20.9671, -89.6236], 12);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors'
-      }).addTo(map);
-      L.marker([20.9671, -89.6236]).addTo(map)
-        .bindPopup('Ubicación del Conductor').openPopup();
+      }).addTo(conductorMap);
+      
+      conductorMarker = L.marker([20.9671, -89.6236])
+        .addTo(conductorMap)
+        .bindPopup('Ubicación del Conductor');
     }
 
-    // USAR LOCATIONIQ PARA AUTOCOMPLETE
+    function actualizarUbicacionConductor(viajeId) {
+      if(ubicacionInterval) clearInterval(ubicacionInterval);
+      
+      ubicacionInterval = setInterval(async () => {
+        try {
+          const response = await fetch(`obtener_ubicacion_conductor.php?viaje_id=${viajeId}`, {
+            credentials: 'include'
+          });
+          const data = await response.json();
+          
+          if(data.success) {
+            conductorMarker.setLatLng([data.lat, data.lng]);
+            if(!conductorMap.getBounds().contains(conductorMarker.getLatLng())) {
+              conductorMap.setView(conductorMarker.getLatLng(), 14);
+            }
+          }
+        } catch(error) {
+          console.error('Error actualizando ubicación:', error);
+        }
+      }, 5000);
+    }
+
+    function setupViajesInteractions() {
+      document.getElementById('viajesContainer').addEventListener('click', async (e) => {
+        if(e.target.classList.contains('reservar-btn')) {
+          const viajeId = e.target.dataset.id;
+          
+          try {
+            const response = await fetch('reservar_viaje.php', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+              body: `viaje_id=${viajeId}`,
+              credentials: 'include'
+            });
+            
+            const data = await response.json();
+            
+            if(data.success) {
+              Swal.fire({
+                icon: 'success',
+                title: '¡Reserva exitosa!',
+                text: data.msg,
+                confirmButtonColor: '#4f46e5'
+              });
+              actualizarViajes();
+            } else {
+              Swal.fire({
+                icon: 'error',
+                title: 'Error',
+                text: data.error,
+                confirmButtonColor: '#4f46e5'
+              });
+            }
+          } catch(error) {
+            console.error('Error:', error);
+          }
+        }
+        
+        if(e.target.classList.contains('seguir-btn')) {
+          const viajeId = e.target.dataset.id;
+          actualizarUbicacionConductor(viajeId);
+          
+          Swal.fire({
+            title: 'Seguimiento activado',
+            html: `<button class="mt-4 px-4 py-2 bg-red-500 text-white rounded hover:bg-red-700" 
+                    onclick="clearInterval(ubicacionInterval)">
+              Detener seguimiento
+            </button>`,
+            showConfirmButton: false
+          });
+        }
+      });
+    }
+
+    // ========== FUNCIONALIDADES EXISTENTES ========== //
     const LOCATIONIQ_API_KEY = "pk.5c9995b97f3c62de4ee3ac8990f17d1c";
 
     async function geocode(query) {
@@ -138,10 +272,9 @@
       const cont = document.getElementById('mapaViaje');
       if (!cont) return;
 
-      // Si ya existe un mapa anterior, remuévelo para evitar conflicto.
       if (cont._leaflet_id) {
         cont._leaflet_id = null;
-        cont.innerHTML = ""; // Limpia el div antes de volver a crear el mapa
+        cont.innerHTML = "";
       }
 
       const map = L.map(cont).setView([20.9671, -89.6236], 12);
@@ -149,11 +282,9 @@
         attribution: '&copy; OpenStreetMap contributors'
       }).addTo(map);
 
-      let markerOrigen, markerDestino;
-
       function setupAutocomplete(inputId, which) {
         const input = document.getElementById(inputId);
-        if (!input) return; // Asegúrate que existe el input
+        if (!input) return;
         let list = input.parentNode.querySelector('.autocomplete-list');
         if (!list) {
           list = document.createElement('ul');
@@ -162,7 +293,6 @@
           input.parentNode.appendChild(list);
         }
 
-        // Limpia cualquier listener previo
         input.oninput = null;
 
         input.addEventListener('input', async function () {
@@ -171,7 +301,6 @@
             list.innerHTML = '';
             return;
           }
-          // Limpia la lista antes de nueva búsqueda
           list.innerHTML = '<li style="color:#aaa;padding:6px 8px;">Buscando...</li>';
           try {
             const places = await geocode(term);
@@ -187,10 +316,16 @@
                 list.innerHTML = '';
                 const latlng = [parseFloat(p.lat), parseFloat(p.lon)];
                 if (which === 'origen') {
-                  markerOrigen = markerOrigen || L.marker(latlng).addTo(map);
+                  if (markerOrigen) {
+                    map.removeLayer(markerOrigen);
+                  }
+                  markerOrigen = L.marker(latlng).addTo(map);
                   markerOrigen.setLatLng(latlng);
                 } else {
-                  markerDestino = markerDestino || L.marker(latlng).addTo(map);
+                  if (markerDestino) {
+                    map.removeLayer(markerDestino);
+                  }
+                  markerDestino = L.marker(latlng).addTo(map);
                   markerDestino.setLatLng(latlng);
                 }
                 map.setView(latlng, 14);
@@ -202,7 +337,6 @@
           }
         });
 
-        // Limpia lista al hacer click fuera
         document.addEventListener('click', function docClick(e) {
           if (!input.parentNode.contains(e.target)) {
             list.innerHTML = '';
@@ -213,7 +347,7 @@
       setupAutocomplete('origen',  'origen');
       setupAutocomplete('destino', 'destino');
     }
-    // Navegación entre secciones
+
     function changeSection(page) {
       if (window.messagePollingInterval) {
         clearInterval(window.messagePollingInterval);
@@ -224,10 +358,15 @@
       document.querySelector(`.sidebar-link[data-page="${page}"]`).classList.add('active');
 
       if (page === 'Inicio') {
-        document.getElementById('contentInicio').classList.remove('hidden');
-        document.getElementById('contentContainer').classList.add('hidden');
-        initLeafletMap();
-      } else {
+  document.getElementById('contentInicio').classList.remove('hidden');
+  document.getElementById('contentContainer').classList.add('hidden');
+  initLeafletMap();
+
+  // ✅ Remueve notificaciones visuales si existen
+  const badge = document.querySelector('.sidebar-link[data-page="Inicio"] .notification-badge');
+  if (badge) badge.remove();
+  window.lastTripId = 0; // opcional: reset para detectar nuevos
+}else {
         document.getElementById('contentInicio').classList.add('hidden');
         fetch(page + '.php', { credentials: 'include' })
           .then(r => r.text())
@@ -261,6 +400,44 @@
                   resultados.innerHTML = `<div class="text-red-500 text-center p-4">${error.message}</div>`;
                 }
               });
+              document.addEventListener('click', e => {
+  if (e.target && e.target.classList.contains('cancelar-btn') && !e.target.disabled) {
+    const reservaId = e.target.getAttribute('data-id');
+
+    Swal.fire({
+      title: '¿Cancelar reserva?',
+      text: 'Esta acción no se puede deshacer.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#d33',
+      cancelButtonColor: '#3085d6',
+      confirmButtonText: 'Sí, cancelar'
+    }).then(result => {
+      if (result.isConfirmed) {
+        fetch('cancelar_reserva.php', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: `reserva_id=${reservaId}`,
+          credentials: 'include'
+        })
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            Swal.fire('Cancelado', 'Tu reserva ha sido cancelada.', 'success');
+            changeSection('misViajes');
+          } else {
+            Swal.fire('Error', data.error || 'No se pudo cancelar la reserva.', 'error');
+          }
+        })
+        .catch(() => {
+          Swal.fire('Error', 'Error al procesar la solicitud.', 'error');
+        });
+      }
+    });
+  }
+});
+
+
             }
 
             if (page === 'mensajes') initializeMessages();
@@ -273,7 +450,6 @@
       }
     }
 
-    // Mensajes
     function startGlobalMessagePolling() {
       if (window.globalPollingInterval) clearInterval(window.globalPollingInterval);
       checkUnreadMessages();
@@ -310,7 +486,6 @@
       } else if (badge.parentNode) badge.remove();
     }
 
-    // Mensajería
     function initializeMessages() {
       let currentChatEmail = '';
       function loadChat(email) {
@@ -460,7 +635,6 @@
       if (init) loadChat(init.getAttribute('data-email'));
     }
 
-    // Publicar Viaje
     function setupPublicarViaje() {
       const cc = document.getElementById('contentContainer');
       if (!document.getElementById('msgContainerPublicar')) {
@@ -469,56 +643,78 @@
         cc.prepend(div);
       }
       initOSMAutocompletePublicar();
+
+      const form = document.getElementById('formPublicarViaje');
+      if (form) {
+        form.addEventListener('submit', enviarFormularioViaje);
+      }
     }
 
-    function enviarFormularioViaje() {
-      if (isSubmitting) return;
+    function enviarFormularioViaje(event) {
+      event.preventDefault();
+      
+      if (isSubmitting) return false;
       isSubmitting = true;
+      
       const form = document.getElementById('formPublicarViaje');
       const mc = document.getElementById('msgContainerPublicar');
       const fd = new FormData(form);
 
-      const fecha = form.fecha.value, hora = form.hora.value;
+      // Validación de fecha y hora
+      const fecha = form.fecha.value;
+      const hora = form.hora.value;
       const fechaHora = new Date(`${fecha}T${hora}`);
+      
       if (fechaHora < new Date()) {
         mc.innerHTML = '<div class="error-alert">La fecha y hora deben ser futuras</div>';
-        setTimeout(()=> mc.innerHTML = '',5000);
+        setTimeout(() => mc.innerHTML = '', 5000);
         isSubmitting = false;
-        return;
+        return false;
       }
 
-      fetch('publicarViaje.php', {
-        method:'POST',
-        body:fd,
-        credentials:'include',
-        headers:{'X-Requested-With':'XMLHttpRequest'}
+      // Mostrar loader
+      mc.innerHTML = '<div class="text-blue-500">Publicando viaje, por favor espere...</div>';
+
+      fetch('procesar_publicar_viaje.php', {
+        method: 'POST',
+        body: fd,
+        credentials: 'include'
       })
-      .then(r=>r.text())
-      .then(html=>{
+      .then(response => response.text())
+      .then(html => {
         mc.innerHTML = html;
         if (html.includes('mensajeExito')) {
           form.reset();
           actualizarViajes();
+          
+          // Limpiar marcadores del mapa si existen
+          if (markerOrigen) {
+            markerOrigen.remove();
+            markerOrigen = null;
+          }
+          if (markerDestino) {
+            markerDestino.remove();
+            markerDestino = null;
+          }
         }
-        setTimeout(()=> mc.innerHTML = '',5000);
+        setTimeout(() => mc.innerHTML = '', 5000);
         isSubmitting = false;
       })
-      .catch(()=>{
+      .catch(error => {
+        console.error('Error:', error);
         mc.innerHTML = '<div class="error-alert">Error al enviar el formulario</div>';
-        setTimeout(()=> mc.innerHTML = '',5000);
+        setTimeout(() => mc.innerHTML = '', 5000);
         isSubmitting = false;
       });
+
+      return false;
     }
 
     function actualizarViajes() {
       fetch('obtener_viajes.php')
-        .then(r=>r.text())
-        .then(html=>document.getElementById('viajesContainer').innerHTML=html);
+        .then(r => r.text())
+        .then(html => document.getElementById('viajesContainer').innerHTML = html);
     }
-
-    // Notificaciones de Viajes
-    window.lastTripId = 0;
-    window.tripsPollingInterval = null;
 
     function checkNewTrips() {
       const inicioLink = document.querySelector('.sidebar-link[data-page="Inicio"]');
@@ -528,54 +724,64 @@
         if (old) old.remove();
         actualizarViajes();
       }
-      fetch(`obtener_nuevos_viajes.php?ultimo_id=${window.lastTripId}`,{credentials:'include'})
-        .then(r=>r.json())
-        .then(data=>{
-          if (data.success && data.count>0) {
-            data.viajes.forEach(v=>{
-              if (Notification.permission==='granted') {
-                new Notification('Nuevo viaje disponible',{
-                  body:`${v.origen} → ${v.destino} · ${v.fecha} ${v.hora}`
+      fetch(`obtener_nuevos_viajes.php?ultimo_id=${window.lastTripId}`, {credentials: 'include'})
+        .then(r => r.json())
+        .then(data => {
+          if (data.success && data.count > 0) {
+            data.viajes.forEach(v => {
+              if (Notification.permission === 'granted') {
+                new Notification('Nuevo viaje disponible', {
+                  body: `${v.origen} → ${v.destino} · ${v.fecha} ${v.hora}`
                 });
               }
             });
             if (!isActive) {
-              let badge = inicioLink.querySelector('.notification-badge')||document.createElement('span');
-              badge.className='notification-badge';
-              badge.textContent=data.count>9?'9+':data.count;
+              let badge = inicioLink.querySelector('.notification-badge') || document.createElement('span');
+              badge.className = 'notification-badge';
+              badge.textContent = data.count > 9 ? '9+' : data.count;
               if (!inicioLink.contains(badge)) inicioLink.appendChild(badge);
             }
             if (isActive) actualizarViajes();
-            window.lastTripId = data.viajes[data.viajes.length-1].id;
+            window.lastTripId = data.viajes[data.viajes.length - 1].id;
           }
         }).catch(console.error);
     }
 
     function startTripsPolling() {
       if (window.tripsPollingInterval) clearInterval(window.tripsPollingInterval);
-      document.querySelectorAll('#viajesContainer .card').forEach(c=>{
-        const id=parseInt(c.getAttribute('data-id'),10);
-        if (id>window.lastTripId) window.lastTripId=id;
+      document.querySelectorAll('#viajesContainer .card').forEach(c => {
+        const id = parseInt(c.getAttribute('data-id'), 10);
+        if (id > window.lastTripId) window.lastTripId = id;
       });
       checkNewTrips();
-      window.tripsPollingInterval=setInterval(checkNewTrips,30000);
+      window.tripsPollingInterval = setInterval(checkNewTrips, 30000);
     }
 
     // Inicialización
-    document.addEventListener('DOMContentLoaded',()=>{
+    document.addEventListener('DOMContentLoaded', () => {
       changeSection('Inicio');
       if ('Notification' in window) Notification.requestPermission();
       startGlobalMessagePolling();
       actualizarViajes();
       startTripsPolling();
+      setupViajesInteractions();
+      initLeafletMap();
 
-      document.querySelector('.sidebar-link[data-page="Inicio"]').addEventListener('click',()=>{
-        const b=document.querySelector('.sidebar-link[data-page="Inicio"] .notification-badge');
+      document.getElementById('toggleSidebar').addEventListener('click', function() {
+        document.getElementById('sidebar').classList.toggle('-translate-x-full');
+        document.getElementById('mainContent').classList.toggle('ml-0');
+        document.getElementById('mainContent').classList.toggle('ml-[200px]');
+      });
+
+      document.querySelector('.sidebar-link[data-page="Inicio"]').addEventListener('click', () => {
+        const b = document.querySelector('.sidebar-link[data-page="Inicio"] .notification-badge');
         if (b) b.remove();
       });
 
-      document.addEventListener('submit',e=>{
-        if(e.target&&e.target.id==='formPublicarViaje'){e.preventDefault();enviarFormularioViaje();}
+      document.addEventListener('submit', e => {
+        if (e.target && e.target.id === 'formPublicarViaje') {
+          enviarFormularioViaje(e);
+        }
       });
     });
   </script>
@@ -624,6 +830,7 @@
   </div>
 
   <!-- Scripts adicionales -->
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script>
     // Toggle Sidebar
     document.getElementById('toggleSidebar').addEventListener('click', function () {
@@ -633,35 +840,35 @@
 
     // Perfil
     function enviarFormularioPerfil() {
-      const form=document.getElementById('formPerfil'), fd=new FormData(form);
-      fetch('perfil.php',{method:'POST',body:fd,credentials:'include'})
-        .then(r=>r.text()).then(data=>{
-          document.getElementById('contentContainer').innerHTML=data;
-          const me=document.getElementById('mensajeExito'), mr=document.getElementById('mensajeError');
-          if(me) setTimeout(()=>me.remove(),5000);
-          if(mr) setTimeout(()=>mr.remove(),5000);
+      const form = document.getElementById('formPerfil'), fd = new FormData(form);
+      fetch('perfil.php', {method: 'POST', body: fd, credentials: 'include'})
+        .then(r => r.text()).then(data => {
+          document.getElementById('contentContainer').innerHTML = data;
+          const me = document.getElementById('mensajeExito'), mr = document.getElementById('mensajeError');
+          if (me) setTimeout(() => me.remove(), 5000);
+          if (mr) setTimeout(() => mr.remove(), 5000);
         }).catch(console.error);
     }
 
     // Seguridad
     function enviarFormularioSeguridad() {
-      const form=document.getElementById('formSeguridad'), fd=new FormData(form);
-      fetch('seguridad.php',{method:'POST',body:fd,credentials:'include'})
-        .then(r=>r.text()).then(data=>{
-          document.getElementById('msgContainer').innerHTML=data;
-          if(data.includes('mensajeExito')) form.reset();
-          setTimeout(()=>{
-            const m=document.getElementById('mensajeExito')||document.getElementById('mensajeError');
-            if(m) m.remove();
-          },5000);
+      const form = document.getElementById('formSeguridad'), fd = new FormData(form);
+      fetch('seguridad.php', {method: 'POST', body: fd, credentials: 'include'})
+        .then(r => r.text()).then(data => {
+          document.getElementById('msgContainer').innerHTML = data;
+          if (data.includes('mensajeExito')) form.reset();
+          setTimeout(() => {
+            const m = document.getElementById('mensajeExito') || document.getElementById('mensajeError');
+            if (m) m.remove();
+          }, 5000);
         }).catch(console.error);
     }
 
     // Toggle Password
-    document.addEventListener('click',e=>{
-      if(e.target.classList.contains('toggle-password')){
-        const tgt=document.getElementById(e.target.dataset.target);
-        if(tgt){
+    document.addEventListener('click', e => {
+      if (e.target.classList.contains('toggle-password')) {
+        const tgt = document.getElementById(e.target.dataset.target);
+        if (tgt) {
           tgt.type = tgt.type === 'password' ? 'text' : 'password';
           e.target.textContent = tgt.type === 'password' ? '👁️' : '🔒';
         }
@@ -669,17 +876,14 @@
     });
 
     // Validación Password
-    document.addEventListener('input',e=>{
-      if(e.target.id==='new_password'){
-        const p=e.target.value, ok=p.length>=8&&/[A-Z]/.test(p)&&/[0-9]/.test(p);
-        e.target.style.borderColor = p ? (ok?'#27ae60':'#e74c3c'):'#ddd';
+    document.addEventListener('input', e => {
+      if (e.target.id === 'new_password') {
+        const p = e.target.value, ok = p.length >= 8 && /[A-Z]/.test(p) && /[0-9]/.test(p);
+        e.target.style.borderColor = p ? (ok ? '#27ae60' : '#e74c3c') : '#ddd';
       }
     });
-  </script>
-  <!-- Validación Frontend con SweetAlert -->
-  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-  <script>
-  function validarFiltros() {
+
+    function validarFiltros() {
       const campos = [
           document.querySelector('input[name="fecha"]').value.trim(),
           document.querySelector('input[name="origen"]').value.trim(),
@@ -689,7 +893,7 @@
 
       const todosVacios = campos.every(valor => valor === '');
 
-      if(todosVacios) {
+      if (todosVacios) {
           Swal.fire({
               icon: 'warning',
               title: 'Filtros vacíos',
@@ -700,7 +904,7 @@
           return false;
       }
       return true;
-  }
+    }
   </script>
 </body>
 </html>

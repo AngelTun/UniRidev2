@@ -4,7 +4,7 @@ require_once 'conexion.php';
 
 header('Content-Type: application/json');
 
-if (!isset($_SESSION['usuario']) {
+if (!isset($_SESSION['usuario'])) {
     echo json_encode(['success' => false]);
     exit;
 }

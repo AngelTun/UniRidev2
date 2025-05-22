@@ -43,35 +43,33 @@ if($campos_vacios && count($_GET) > 0) {
 // ========================================
 
 // Construcción de consulta
-$where = 'WHERE conductor_id = :id AND fecha <= :hoy';
-$params = [
-    ':id' => $usuario_id,
-    ':hoy' => $hoy
-];
+$where = 'WHERE r.usuario_id = :usuario_id';
+$params = [':usuario_id' => $usuario_id];
 
-// Aplicar filtros
+// Aplicar filtros a los viajes reservados
 if (!empty($filtros['fecha'])) {
-    $where .= ' AND fecha = :fecha';
+    $where .= ' AND v.fecha = :fecha';
     $params[':fecha'] = $filtros['fecha'];
 }
-
 if (!empty($filtros['origen'])) {
-    $where .= ' AND origen LIKE :origen';
+    $where .= ' AND v.origen LIKE :origen';
     $params[':origen'] = '%' . $filtros['origen'] . '%';
 }
-
 if (!empty($filtros['destino'])) {
-    $where .= ' AND destino LIKE :destino';
+    $where .= ' AND v.destino LIKE :destino';
     $params[':destino'] = '%' . $filtros['destino'] . '%';
 }
-
 if (!empty($filtros['asientos']) && $filtros['asientos'] >= 1 && $filtros['asientos'] <= 6) {
-    $where .= ' AND asientos >= :asientos';
+    $where .= ' AND v.asientos >= :asientos';
     $params[':asientos'] = $filtros['asientos'];
 }
 
 try {
-    $sql = "SELECT * FROM viajes $where ORDER BY fecha DESC, hora DESC";
+    $sql = "SELECT v.*, r.id AS reserva_id, r.fecha_reserva
+            FROM reservas r
+            JOIN viajes v ON r.viaje_id = v.id
+            $where
+            ORDER BY v.fecha DESC, v.hora DESC";
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
     $viajes = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -82,7 +80,7 @@ try {
 
 <!-- Contenido que se carga dentro del dashboard -->
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-    <h2 class="text-2xl font-bold mb-6 text-center">Mis Viajes</h2>
+    <h2 class="text-2xl font-bold mb-6 text-center">Mis Viajes Reservados</h2>
 
     <form id="filtrosForm" class="flex flex-col md:flex-row md:flex-wrap gap-4 justify-center mb-6" onsubmit="return validarFiltros()">
         <input type="date" name="fecha" max="<?= $hoy ?>" 
@@ -114,7 +112,7 @@ try {
         <h2 class="text-2xl font-bold mb-6 text-center">Resultados</h2>
         <div id="resultados">
             <?php if (empty($viajes)): ?>
-                <p class="text-center text-gray-500 py-4">No tienes viajes registrados</p>
+                <p class="text-center text-gray-500 py-4">No tienes viajes reservados</p>
             <?php else: ?>
                 <div class="flex justify-end mb-4">
                     <a id="btnExportar" href="exportar_viajes.php?<?= http_build_query($_GET) ?>" 
@@ -125,29 +123,47 @@ try {
                 
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     <?php foreach ($viajes as $viaje): ?>
-                        <div class="bg-white rounded-lg shadow-lg p-6 hover:shadow-xl transition-shadow">
-                            <div class="text-sm text-gray-400 mb-2">
-                                <span class="block">Fecha: <?= htmlspecialchars($viaje['fecha']) ?></span>
-                                <span class="block">Hora: <?= htmlspecialchars($viaje['hora']) ?></span>
-                            </div>
-                            <div class="mb-4">
-                                <p class="text-lg font-semibold text-indigo-600">
-                                    <?= htmlspecialchars($viaje['origen']) ?> 
-                                    <span class="text-gray-400">→</span> 
-                                    <?= htmlspecialchars($viaje['destino']) ?>
-                                </p>
-                            </div>
-                            <div class="flex justify-between items-center">
-                                <span class="text-gray-500">Asientos: <?= $viaje['asientos'] ?></span>
-                                <span class="bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full text-sm">
-                                    $<?= number_format($viaje['precio'], 2) ?>
-                                </span>
-                            </div>
-                        </div>
-                    <?php endforeach; ?>
+    <?php
+    date_default_timezone_set('America/Mexico_City'); // Asegura coherencia con la hora local
+    $fechaHoraViaje = new DateTime($viaje['fecha'] . ' ' . $viaje['hora']);
+    $ahora = new DateTime();
+    $esFuturo = $fechaHoraViaje > $ahora;
+    ?>
+
+    <div class="bg-white rounded-lg shadow-lg p-6 hover:shadow-xl transition-shadow">
+        <div class="text-sm text-gray-400 mb-2">
+            <span class="block">Fecha: <?= htmlspecialchars($viaje['fecha']) ?></span>
+            <span class="block">Hora: <?= htmlspecialchars($viaje['hora']) ?></span>
+        </div>
+        <div class="mb-4">
+            <p class="text-lg font-semibold text-indigo-600">
+                <?= htmlspecialchars($viaje['origen']) ?>
+                <span class="text-gray-400">→</span>
+                <?= htmlspecialchars($viaje['destino']) ?>
+            </p>
+        </div>
+        <div class="flex justify-between items-center">
+            <span class="text-gray-500">Asientos: <?= htmlspecialchars($viaje['asientos']) ?></span>
+            <span class="bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full text-sm">
+                $<?= number_format($viaje['precio'], 2) ?>
+            </span>
+        </div>
+        <div class="mt-2 text-xs text-gray-400">
+            Reservado el: <?= isset($viaje['fecha_reserva']) ? htmlspecialchars($viaje['fecha_reserva']) : '---' ?>
+        </div>
+
+        <button 
+            class="cancelar-btn mt-4 px-4 py-2 rounded text-white <?= $esFuturo ? 'bg-red-500 hover:bg-red-700' : 'bg-red-300 cursor-not-allowed' ?>" 
+            data-id="<?= $viaje['reserva_id'] ?>" 
+            <?= $esFuturo ? '' : 'disabled' ?>>
+            Cancelar
+        </button>
+    </div>
+<?php endforeach; ?>
+
+
                 </div>
             <?php endif; ?>
         </div>
     </div>
 </div>
-
